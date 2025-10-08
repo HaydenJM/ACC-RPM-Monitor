@@ -63,6 +63,65 @@ public static class ConfigUI
         }
     }
 
+    // Configuration mode selection menu
+    public static void ShowModeSelectionMenu(ConfigManager configManager)
+    {
+        while (true)
+        {
+            Console.Clear();
+            Console.WriteLine("=== ACC RPM Monitor - Configuration Mode ===\n");
+            Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}\n");
+
+            Console.WriteLine("Select configuration mode:\n");
+            Console.WriteLine("  [1] Manual Configuration");
+            Console.WriteLine("      Use custom RPM values that you define");
+            Console.WriteLine();
+
+            if (configManager.HasAutoConfig())
+            {
+                Console.WriteLine("  [2] Auto-Generated Configuration ✓");
+                Console.WriteLine("      Use optimal shift points detected from your driving");
+            }
+            else
+            {
+                Console.WriteLine("  [2] Auto-Generated Configuration");
+                Console.WriteLine("      (No auto config available yet - will be generated during driving)");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Current mode: {configManager.CurrentMode}");
+
+            Console.Write("\nSelect mode (1-2): ");
+            string? input = Console.ReadLine();
+
+            if (int.TryParse(input, out int choice))
+            {
+                if (choice == 1)
+                {
+                    configManager.SetMode(ConfigMode.Manual);
+                    Console.WriteLine("\nManual configuration mode selected.");
+                    Thread.Sleep(1000);
+                    return;
+                }
+                else if (choice == 2)
+                {
+                    configManager.SetMode(ConfigMode.Auto);
+                    if (!configManager.HasAutoConfig())
+                    {
+                        Console.WriteLine("\nAuto mode selected. Optimal shift points will be");
+                        Console.WriteLine("automatically detected as you drive.");
+                    }
+                    else
+                    {
+                        Console.WriteLine("\nAuto-generated configuration loaded.");
+                    }
+                    Thread.Sleep(1500);
+                    return;
+                }
+            }
+        }
+    }
+
     // Creates a new vehicle config
     private static void CreateNewVehicle(ConfigManager configManager)
     {
@@ -137,11 +196,24 @@ public static class ConfigUI
     // Main config menu - lets you edit RPM thresholds for each gear
     public static void ShowConfigMenu(GearRPMConfig config, ConfigManager configManager)
     {
+        // Auto mode configs shouldn't be edited manually
+        if (configManager.CurrentMode == ConfigMode.Auto)
+        {
+            Console.Clear();
+            Console.WriteLine("=== ACC RPM Monitor - Auto Configuration ===\n");
+            Console.WriteLine("You are in Auto mode. Configuration is generated automatically");
+            Console.WriteLine("from your driving data and cannot be edited manually.\n");
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
+            return;
+        }
+
         while (true)
         {
             Console.Clear();
             Console.WriteLine("=== ACC RPM Monitor - Configuration ===\n");
             Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
+            Console.WriteLine($"Mode: {configManager.CurrentMode}");
             Console.WriteLine($"Config file: {configManager.ConfigFilePath}\n");
 
             Console.WriteLine("Current RPM Thresholds:");

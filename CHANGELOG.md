@@ -71,6 +71,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Dynamic Audio Warning System**: Audio warning timing now adapts based on RPM rate of change
+  - Fast RPM increase (>500 RPM/sec): Warns 500+ RPM early
+  - Moderate increase (200-500 RPM/sec): Standard 300 RPM warning
+  - Slow increase (<200 RPM/sec): Warns only 200 RPM early
+  - Prevents late warnings in lower gears where RPMs climb quickly
+
+- **Automatic Optimal Shift Point Detection**: System learns best shift points from your driving
+  - Analyzes telemetry data during full-throttle acceleration
+  - Calculates optimal upshift RPM per gear (lowest RPM achieving max speed)
+  - Auto mode: Automatically collects data and updates configuration
+  - Manual mode: Optional data collection via F1 key toggle
+  - Saves vehicle-specific auto-generated configs
+
+- **Automatic Vehicle Detection**: Detects current car from ACC and loads appropriate config
+  - Reads vehicle name from ACC static shared memory
+  - Auto-switches to correct vehicle configuration
+  - Falls back to manual selection if detection fails
+
+- **Dual Configuration Mode System**:
+  - **Manual Mode**: Traditional user-defined RPM values (fully editable)
+  - **Auto Mode**: Uses AI-learned optimal shift points (read-only, auto-updates)
+  - Easy switching between modes via startup menu
+  - Separate config files for each mode per vehicle
+
 ### Changed
 - **Audio Frequencies**: Fixed gear 2 to use its own frequency range (600-700 Hz) instead of sharing with gear 1
   - Gear 1: 500-600 Hz (unchanged)
@@ -79,8 +104,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gear 4+: Each subsequent gear increases by 100 Hz
   - This ensures each gear has a distinct audio cue for better feedback
 
+- Replaced `AudioEngine` with `DynamicAudioEngine` for adaptive warning timing
+- Enhanced status display with RPM rate and dynamic warning distance
+- Config files now support metadata (last updated, data points, confidence levels)
+
 ### Removed
 - Removed redundant `ACCSharedMemory.cs` file (project uses the simplified version)
+
+### Technical Details
+- New `OptimalShiftAnalyzer` class for shift point calculation
+- New `VehicleDetector` class for automatic car identification
+- New `DynamicAudioEngine` with RPM rate tracking (200ms window)
+- Enhanced `GearRPMConfig` with auto-generation metadata
+- Updated `ConfigManager` to handle dual-mode configurations
+- F1 key toggles data collection during driving
 
 ### Planned Features
 - GUI interface option
