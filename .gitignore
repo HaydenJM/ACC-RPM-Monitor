@@ -101,3 +101,6 @@ $RECYCLE.BIN/
 
 # macOS
 .DS_Store
+
+# Claude Code
+.claude/
