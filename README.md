@@ -1,31 +1,60 @@
 # ACC RPM Monitor
 
-A real-time audio feedback system for Assetto Corsa Competizione that helps you optimize gear shifts through progressive audio cues.
+A real-time audio feedback system for Assetto Corsa Competizione that helps you optimize gear shifts through progressive audio cues and intelligent shift point detection.
 
 ## Overview
 
-ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provide auditory shift indicators customized for each vehicle. Instead of constantly watching the HUD, you'll hear escalating audio cues that tell you when to shift, allowing you to focus on the racing line and track conditions.
+ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provide auditory shift indicators customized for each vehicle. The system can either use your custom RPM values or automatically learn the optimal shift points from your driving data.
 
 ## Features
 
+### Audio Feedback System
+- **Dynamic Audio Warning**: Adapts warning timing based on how fast your RPMs are climbing
+  - Fast RPM increase (>500 RPM/sec): Warns earlier to compensate for rapid acceleration
+  - Moderate increase (200-500 RPM/sec): Standard 300 RPM warning
+  - Slow increase (<200 RPM/sec): Delayed warning for better precision
 - **Progressive Audio Feedback**: Rising triangle wave tone that increases in pitch as you approach optimal shift RPM
 - **Two-Stage Warning System**:
-  - Rising tone starts at 300 RPM below target shift point
+  - Rising tone starts at dynamic distance (200-600 RPM) below target shift point
   - Urgent beeping alert starts at 100 RPM below target
-- **Per-Vehicle Configuration**: Save unique RPM shift points for each car in your garage
+- **Gear-Based Frequency**: Each gear has unique audio pitch for better situational awareness
+  - Gear 1: 500-600 Hz
+  - Gear 2: 600-700 Hz
+  - Gear 3+: Increases by 100 Hz per gear
+
+### Intelligent Shift Detection
+- **Automatic Vehicle Detection**: Identifies your current car from ACC and loads the right config
+- **Dual Configuration Modes**:
+  - **Manual Mode**: Define your own custom RPM shift points (fully editable)
+  - **Auto Mode**: AI learns optimal shift points from your driving (read-only, auto-updates)
+- **Real-Time Data Collection**:
+  - Analyzes full-throttle acceleration runs
+  - Calculates optimal upshift RPM per gear (lowest RPM achieving maximum speed)
+  - Builds confidence scores based on data quantity
+  - Press **F1** to toggle data collection on/off
+- **Per-Vehicle Configuration**: Separate configs for each car, both manual and auto-generated
 - **Per-Gear Customization**: Configure different shift points for each gear (1-8)
+
+### Telemetry & Performance
 - **Real-Time Telemetry**: Direct shared memory integration with ACC for instant feedback
-- **Gear-Based Frequency**: Audio pitch increases with higher gears for better situational awareness
-- **Interactive Setup**: Easy-to-use console menus for vehicle selection and RPM configuration
+- **RPM Rate Tracking**: Monitors RPM acceleration over 200ms window
+- **Live Status Display**: Shows RPM rate, warning distance, and data collection progress
+- **Interactive Setup**: Easy-to-use console menus for vehicle and mode selection
 
 ## How It Works
 
+### Manual Mode
 1. **Connect**: Launch ACC and join a session
-2. **Monitor**: Reads current gear and RPM data in real-time (~20Hz update rate)
-3. **Alert**: Provides progressive audio feedback:
-   - **Silent**: More than 300 RPM below shift point
-   - **Rising Tone**: 300-100 RPM below shift point (pitch increases with RPM)
-   - **Beeping Alert**: 100 RPM below shift point until you shift
+2. **Configure**: Set your desired shift RPM for each gear
+3. **Monitor**: Reads current gear and RPM data in real-time (~20Hz update rate)
+4. **Alert**: Provides adaptive audio feedback based on RPM acceleration rate
+
+### Auto Mode
+1. **Connect**: Launch ACC and join a session
+2. **Drive**: System automatically collects data during full-throttle acceleration
+3. **Learn**: Analyzes telemetry to find optimal shift points for each gear
+4. **Optimize**: Updates configuration every 500 data points with refined shift points
+5. **Alert**: Uses learned optimal RPMs for audio warnings
 
 ## Requirements
 
@@ -44,20 +73,22 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 ### First Time Setup
 
 1. Launch the application
-2. Select or create a vehicle configuration:
-   - Choose existing vehicle from the list
-   - Create new vehicle profile
-3. Configure RPM shift points for each gear:
+2. Vehicle detection runs automatically (or select manually)
+3. Choose configuration mode:
+   - **Manual Mode**: Define your own RPM values
+   - **Auto Mode**: Let the system learn from your driving
+4. Configure RPM shift points (Manual mode only):
    - Enter optimal shift RPM for gears 1-8
    - Values are saved automatically
-4. Launch ACC and start driving
+5. Launch ACC and start driving
 
 ### During Racing
 
 - The monitor connects automatically when ACC is running
 - Audio feedback activates only during live sessions (not menus or replays)
 - Neutral and reverse gears are ignored (no audio feedback)
-- Press **ESC** to exit the application
+- **Press ESC** to exit the application
+- **Press F1** to toggle data collection on/off (useful for learning new tracks/setups)
 
 ### Configuration Files
 
@@ -66,9 +97,11 @@ Configuration files are stored in:
 %LOCALAPPDATA%\ACCRPMMonitor\powercurves\
 ```
 
-Each vehicle has its own JSON file (e.g., `Porsche_991ii_GT3_R.json`) containing gear-specific RPM thresholds.
+Each vehicle has two JSON files:
+- `{vehicle}.json` - Manual configuration (user-defined)
+- `{vehicle}_auto.json` - Auto-generated optimal configuration
 
-#### Example Configuration
+#### Manual Configuration Example
 ```json
 {
   "GearRPMThresholds": {
@@ -80,16 +113,50 @@ Each vehicle has its own JSON file (e.g., `Porsche_991ii_GT3_R.json`) containing
     "6": 7000,
     "7": 7000,
     "8": 7000
+  },
+  "IsAutoGenerated": false
+}
+```
+
+#### Auto-Generated Configuration Example
+```json
+{
+  "GearRPMThresholds": {
+    "1": 5850,
+    "2": 6420,
+    "3": 6890,
+    "4": 7150,
+    "5": 7200,
+    "6": 7250,
+    "7": 7300,
+    "8": 7350
+  },
+  "IsAutoGenerated": true,
+  "LastUpdated": "2025-10-08T14:32:15.123Z",
+  "TotalDataPoints": 1500,
+  "DataConfidence": {
+    "1": 1.0,
+    "2": 1.0,
+    "3": 0.75,
+    "4": 0.5
   }
 }
 ```
 
 ## Audio Feedback Details
 
+### Dynamic Warning System
+- **Fast RPM Acceleration (>500 RPM/sec)**: Warning starts 500-600 RPM early
+- **Moderate Acceleration (200-500 RPM/sec)**: Warning starts 300 RPM early
+- **Slow Acceleration (<200 RPM/sec)**: Warning starts 200 RPM early
+- **Beeping Phase**: Always at 100 RPM below threshold
+
 ### Frequency Mapping
-- **Gears 1-2**: Base frequency 500-600 Hz
-- **Gear 3+**: Increases by 100 Hz per gear (Gear 3 = 600-700 Hz, Gear 4 = 700-800 Hz, etc.)
-- **Rising Phase**: Frequency increases from base to max over 200 RPM range
+- **Gear 1**: 500-600 Hz
+- **Gear 2**: 600-700 Hz
+- **Gear 3**: 700-800 Hz
+- **Gear 4+**: Continues increasing by 100 Hz per gear
+- **Rising Phase**: Frequency increases from base to max over the dynamic warning distance
 - **Beeping Phase**: Rapid on/off beeping at max frequency (100ms on, 100ms off)
 
 ### Status Indicators
@@ -99,6 +166,9 @@ The console displays:
 - **Current Gear**: Displayed gear (1-8, or N/R for neutral/reverse)
 - **Current RPM**: Real-time engine RPM
 - **Threshold**: Configured shift point for current gear
+- **RPM Rate**: Current RPM acceleration (RPM/sec)
+- **Warning Distance**: Dynamic warning distance based on RPM rate
+- **Data Collection**: Status and total data points collected
 - **Status**: Distance from shift point and current audio state
 
 ## Building from Source
@@ -108,8 +178,8 @@ Requirements:
 - Windows development environment
 
 ```bash
-git clone https://github.com/yourusername/ACCRPMMonitor.git
-cd ACCRPMMonitor
+git clone https://github.com/HaydenJM/ACC-RPM-Monitor.git
+cd ACC-RPM-Monitor
 dotnet build
 dotnet run
 ```
@@ -124,16 +194,28 @@ dotnet run
 ### Shared Memory Integration
 
 The application reads from ACC's shared memory mapped files:
-- `Local\acpmf_physics` - Physics data (gear, RPM, etc.)
+- `Local\acpmf_physics` - Physics data (gear, RPM, speed, throttle)
 - `Local\acpmf_graphics` - Graphics/UI data (session status)
+- `Local\acpmf_static` - Static data (vehicle model, track name)
 
 ### Audio Engine
 
-Uses NAudio to generate triangle wave audio:
+Dynamic Audio Engine with RPM rate tracking:
 - 44.1 kHz sample rate, mono
-- Triangle wave generation for smooth, non-fatiguing audio
+- Triangle wave generation for smooth, non-fatigating audio
 - 15% amplitude (0.15) for comfortable listening volume
 - Real-time frequency modulation based on RPM
+- 200ms RPM history window for rate calculation
+- Adaptive warning distance calculation
+
+### Optimal Shift Detection Algorithm
+
+1. **Data Collection**: Records RPM, speed, throttle, and gear during driving
+2. **Filtering**: Only uses full-throttle data (>95% throttle) for analysis
+3. **Peak Detection**: Finds maximum speed achieved in each gear
+4. **Optimal Point**: Identifies lowest RPM achieving ≥99% of max speed
+5. **Confidence Scoring**: Calculates reliability based on data quantity
+6. **Auto-Update**: Refreshes configuration every 500 new data points
 
 ### Performance
 
@@ -141,6 +223,7 @@ Uses NAudio to generate triangle wave audio:
 - Minimal CPU usage (~1-2% on modern processors)
 - Sub-millisecond audio latency
 - Automatic reconnection on ACC restart
+- Real-time data analysis and config updates
 
 ## Troubleshooting
 
@@ -152,21 +235,49 @@ Uses NAudio to generate triangle wave audio:
 ### No audio feedback
 - Check that you're in a live session (not menus, replays, or paused)
 - Verify you're not in neutral or reverse
-- Confirm your RPM is within 300 RPM of the configured threshold
+- Confirm your RPM is within warning distance of the configured threshold
 - Check Windows audio output settings
+
+### Auto mode not learning
+- Ensure data collection is ON (press F1 to toggle)
+- Drive full-throttle acceleration runs in each gear
+- Need at least 50 data points per gear for confidence
+- Check console for data point counter
 
 ### Configuration not saving
 - Ensure the application has write permissions to `%LOCALAPPDATA%`
 - Check for file system errors
 - Verify JSON syntax if manually editing configuration files
 
+## Tips for Best Results
+
+### Manual Mode
+- Start conservative with shift points and adjust based on feel
+- Use lower RPMs for better fuel efficiency
+- Set higher RPMs for qualifying laps
+- Test different values per track/conditions
+
+### Auto Mode
+- Do several full-throttle acceleration runs to build data
+- Use on familiar tracks where you can safely go full throttle
+- Let it collect 200+ points per gear for best accuracy
+- Review auto-generated values and switch to manual for fine-tuning
+
+### Dynamic Audio System
+- Works best when you have consistent throttle application
+- Lower gears benefit most from dynamic warning (faster RPM climb)
+- Can temporarily disable collection (F1) during traffic/caution periods
+
 ## Future Enhancements
 
 - GUI interface option
 - DirectInput button mapping for quick profile switching
-- Telemetry data export
-- Lap time optimization suggestions
-- Multi-monitor support with visual indicators
+- Visual indicators for multi-monitor setups
+- Telemetry data logging and export
+- Lap time analysis and optimization
+- Downshift detection and warnings
+- Optimal shift point suggestions based on power curves
+- Track-specific configurations
 
 ## License
 
