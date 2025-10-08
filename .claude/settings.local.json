@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build)",
+      "Read(//c/Users/Quinn/AndroidStudioProjects/AccTelemetryApp/**)",
+      "Bash(git tag:*)",
+      "Bash(dir:*)",
+      "Bash(git restore:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

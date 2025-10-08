@@ -2,9 +2,7 @@ using NAudio.Wave;
 
 namespace ACCRPMMonitor;
 
-/// <summary>
-/// Audio engine for RPM shift feedback using triangle wave tones
-/// </summary>
+// Handles the audio feedback for RPM shift warnings using triangle waves
 public class AudioEngine : IDisposable
 {
     private readonly WaveOutEvent _waveOut;
@@ -18,27 +16,19 @@ public class AudioEngine : IDisposable
         _waveOut.Init(_waveProvider);
     }
 
-    /// <summary>
-    /// Updates audio based on current RPM, threshold, and gear
-    /// </summary>
-    /// <param name="currentRPM">Current RPM value</param>
-    /// <param name="threshold">RPM threshold for shifting</param>
-    /// <param name="currentGear">Current gear (1-8)</param>
+    // Updates the audio based on RPM, threshold, and current gear
     public void UpdateRPM(int currentRPM, int threshold, int currentGear)
     {
         int rpmFromThreshold = currentRPM - threshold;
 
-        // Calculate base frequency based on gear
-        // Gears 1-2: 500-600 Hz
-        // Gear 3+: increases by 100 Hz per gear
-        float baseFreq = currentGear <= 2 ? 500f : 500f + (currentGear - 2) * 100f;
+        // Each gear gets its own 100Hz frequency range, starting at 500Hz
+        float baseFreq = 500f + (currentGear - 1) * 100f;
         float maxFreq = baseFreq + 100f;
 
-        // Start rising tone at 300 RPM below threshold
+        // Rising tone phase: 300 RPM to 100 RPM below threshold
         if (rpmFromThreshold >= -300 && rpmFromThreshold < -100)
         {
-            // Map RPM range [-300, -100] to frequency range [baseFreq, maxFreq] Hz
-            // Formula: baseFreq + ((currentRPM - (threshold - 300)) / 2)
+            // Frequency rises smoothly from baseFreq to maxFreq over 200 RPM
             float frequency = baseFreq + ((currentRPM - (threshold - 300)) / 2f);
 
             _waveProvider.SetFrequency(frequency);
@@ -50,7 +40,7 @@ public class AudioEngine : IDisposable
                 _isPlaying = true;
             }
         }
-        // Start beeping at 100 RPM below threshold
+        // Beeping phase: 100 RPM below threshold and above
         else if (rpmFromThreshold >= -100)
         {
             _waveProvider.SetFrequency(maxFreq);
@@ -62,7 +52,7 @@ public class AudioEngine : IDisposable
                 _isPlaying = true;
             }
         }
-        // Below trigger range - stop audio
+        // Too far below threshold - stop audio
         else
         {
             if (_isPlaying)
@@ -73,9 +63,6 @@ public class AudioEngine : IDisposable
         }
     }
 
-    /// <summary>
-    /// Stops all audio playback
-    /// </summary>
     public void Stop()
     {
         if (_isPlaying)
@@ -92,9 +79,7 @@ public class AudioEngine : IDisposable
     }
 }
 
-/// <summary>
-/// Triangle wave generator for audio feedback
-/// </summary>
+// Generates triangle wave audio with optional beeping
 internal class TriangleWaveProvider : ISampleProvider
 {
     private float _frequency;
@@ -103,8 +88,8 @@ internal class TriangleWaveProvider : ISampleProvider
     private int _samplesSinceBeepToggle;
     private bool _beepOn = true;
     private const int BeepOnSamples = 4410; // ~100ms at 44.1kHz
-    private const int BeepOffSamples = 4410; // ~100ms at 44.1kHz
-    private const float Amplitude = 0.15f; // Keep volume reasonable
+    private const int BeepOffSamples = 4410;
+    private const float Amplitude = 0.15f;
 
     public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
 
@@ -129,7 +114,7 @@ internal class TriangleWaveProvider : ISampleProvider
         {
             float sample = 0f;
 
-            // Handle beeping mode
+            // Handle beeping mode (100ms on/off pattern)
             if (_isBeeping)
             {
                 _samplesSinceBeepToggle++;
@@ -152,24 +137,23 @@ internal class TriangleWaveProvider : ISampleProvider
                 }
             }
 
-            // Generate triangle wave
-            // Triangle wave: rises from -1 to 1, then falls from 1 to -1
+            // Generate triangle wave sample
             float phaseValue = _phase % 1.0f;
 
             if (phaseValue < 0.5f)
             {
-                // Rising: 0 to 0.5 maps to -1 to 1
+                // Rising edge: 0 to 0.5 maps to -1 to 1
                 sample = (phaseValue * 4f - 1f) * Amplitude;
             }
             else
             {
-                // Falling: 0.5 to 1 maps to 1 to -1
+                // Falling edge: 0.5 to 1 maps to 1 to -1
                 sample = (3f - phaseValue * 4f) * Amplitude;
             }
 
             buffer[offset + i] = sample;
 
-            // Increment phase
+            // Advance phase
             _phase += _frequency / WaveFormat.SampleRate;
             if (_phase >= 1.0f)
                 _phase -= 1.0f;

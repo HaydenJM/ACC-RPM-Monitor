@@ -1,13 +1,9 @@
 namespace ACCRPMMonitor;
 
-/// <summary>
-/// Simple console UI for configuring RPM thresholds
-/// </summary>
+// Simple console UI for managing vehicle configs and editing RPM thresholds
 public static class ConfigUI
 {
-    /// <summary>
-    /// Displays vehicle selection menu
-    /// </summary>
+    // Main vehicle selection menu
     public static void ShowVehicleSelectionMenu(ConfigManager configManager)
     {
         while (true)
@@ -47,7 +43,7 @@ public static class ConfigUI
 
             if (input == "C")
             {
-                return; // Continue with current vehicle
+                return;
             }
             else if (input == "N")
             {
@@ -67,6 +63,7 @@ public static class ConfigUI
         }
     }
 
+    // Creates a new vehicle config
     private static void CreateNewVehicle(ConfigManager configManager)
     {
         Console.Write("\nEnter vehicle name: ");
@@ -79,7 +76,7 @@ public static class ConfigUI
             return;
         }
 
-        // Sanitize filename
+        // Clean up any invalid filename characters
         foreach (char c in Path.GetInvalidFileNameChars())
         {
             vehicleName = vehicleName.Replace(c, '_');
@@ -99,6 +96,7 @@ public static class ConfigUI
         Thread.Sleep(1500);
     }
 
+    // Deletes a vehicle config
     private static void DeleteVehicle(ConfigManager configManager, List<string> vehicles)
     {
         Console.Write("\nEnter vehicle number to delete (or press Enter to cancel): ");
@@ -136,9 +134,7 @@ public static class ConfigUI
         }
     }
 
-    /// <summary>
-    /// Displays the configuration menu and allows user to edit RPM thresholds
-    /// </summary>
+    // Main config menu - lets you edit RPM thresholds for each gear
     public static void ShowConfigMenu(GearRPMConfig config, ConfigManager configManager)
     {
         while (true)
@@ -148,10 +144,10 @@ public static class ConfigUI
             Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
             Console.WriteLine($"Config file: {configManager.ConfigFilePath}\n");
 
-            // Display current thresholds with clear labels
             Console.WriteLine("Current RPM Thresholds:");
-            Console.WriteLine("(RPM value indicates when to shift UP to the next gear)\n");
+            Console.WriteLine("(RPM value is where you should shift UP to next gear)\n");
 
+            // Display all gear thresholds
             for (int gear = 1; gear <= 8; gear++)
             {
                 int rpm = config.GetRPMForGear(gear);
@@ -170,7 +166,7 @@ public static class ConfigUI
 
             if (choice == 0)
             {
-                return; // Exit without saving
+                return;
             }
             else if (choice == 9)
             {
@@ -186,6 +182,7 @@ public static class ConfigUI
         }
     }
 
+    // Edits a single gear's RPM threshold
     private static void EditGearThreshold(GearRPMConfig config, int gear)
     {
         string nextGear = gear < 8 ? $"Gear {gear + 1}" : "Max Gear";

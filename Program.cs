@@ -1,21 +1,19 @@
-﻿using ACCRPMMonitor;
+using ACCRPMMonitor;
 
-// Initialize configuration manager
+// Initialize config manager and load vehicle setup
 var configManager = new ConfigManager();
 
-// Show vehicle selection menu
+// Let user pick which vehicle config to use
 ConfigUI.ShowVehicleSelectionMenu(configManager);
 
-// Load configuration for selected vehicle (creates default if not found)
+// Load the config (creates default if needed)
 var config = configManager.LoadConfig();
 
-// Show configuration menu
+// Let user edit RPM thresholds if they want
 ConfigUI.ShowConfigMenu(config, configManager);
 
-// Initialize audio engine
+// Initialize audio and memory reader
 using var audioEngine = new AudioEngine();
-
-// Initialize ACC shared memory
 using var accMemory = new ACCSharedMemorySimple();
 
 Console.Clear();
@@ -23,18 +21,18 @@ Console.WriteLine("=== ACC RPM Monitor - Running ===");
 Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
 Console.WriteLine("Press ESC to exit\n");
 
-// Try to connect to ACC
+// Main loop - wait for ACC and read telemetry
 bool wasConnected = false;
 int readFailCount = 0;
 Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
 while (true)
 {
-    // Check for exit key
+    // Check for exit
     if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
         break;
 
-    // Try to connect if not already connected
+    // Try connecting to ACC if not already connected
     if (!accMemory.IsConnected)
     {
         if (accMemory.Connect())
@@ -65,13 +63,13 @@ while (true)
         }
     }
 
-    // Read telemetry data
+    // Read telemetry
     var gearRpmData = accMemory.ReadGearAndRPM();
     var status = accMemory.ReadStatus();
 
+    // Handle read failures
     if (gearRpmData == null || status == null)
     {
-        // Read failed - only dispose after multiple failures
         readFailCount++;
         Console.SetCursorPosition(0, 5);
         Console.WriteLine($"Read failures: {readFailCount}/10                                          ");
@@ -80,6 +78,7 @@ while (true)
             Console.WriteLine($"Error: {accMemory.LastError}                                              ");
         }
 
+        // Reconnect after too many failures
         if (readFailCount > 10)
         {
             Console.WriteLine("Multiple read failures. Reconnecting...                                  ");
@@ -90,11 +89,11 @@ while (true)
         continue;
     }
 
-    readFailCount = 0; // Reset fail counter on successful read
+    readFailCount = 0;
 
     var (currentGear, currentRPM) = gearRpmData.Value;
 
-    // Only provide feedback when actually driving (not in menus or replay)
+    // Only provide audio feedback when actually driving (not in menus/replay)
     bool isDriving = status == 2; // AC_LIVE
 
     if (!isDriving)
@@ -107,12 +106,12 @@ while (true)
         continue;
     }
 
-    // Display basic info
+    // Display status
     Console.SetCursorPosition(0, 5);
     Console.WriteLine($"ACC Status:   {GetStatusName(status.Value)}                              ");
     Console.WriteLine();
 
-    // Ignore neutral and reverse
+    // Ignore neutral and reverse (gear 0 and 1 in ACC)
     if (currentGear <= 1)
     {
         audioEngine.Stop();
@@ -123,14 +122,14 @@ while (true)
         continue;
     }
 
-    // Get threshold for current gear (ACC gear 2 = first gear, so subtract 1)
+    // ACC uses gear 2 as first gear, so subtract 1 for display
     int displayGear = currentGear - 1;
     int threshold = config.GetRPMForGear(displayGear);
 
-    // Update audio based on current RPM
+    // Update audio based on RPM
     audioEngine.UpdateRPM(currentRPM, threshold, displayGear);
 
-    // Display current status
+    // Display current telemetry
     Console.WriteLine($"Current Gear: {displayGear}                                                ");
     Console.WriteLine($"Current RPM:  {currentRPM}                                                 ");
     Console.WriteLine($"Threshold:    {threshold} RPM                                              ");
@@ -142,8 +141,8 @@ while (true)
     }
     else if (rpmFromThreshold >= -300)
     {
-        // Calculate frequency based on current gear (same logic as AudioEngine)
-        float baseFreq = displayGear <= 2 ? 500f : 500f + (displayGear - 2) * 100f;
+        // Calculate frequency (matches AudioEngine logic)
+        float baseFreq = 500f + (displayGear - 1) * 100f;
         float frequency = baseFreq + ((currentRPM - (threshold - 300)) / 2f);
         Console.WriteLine($"Status:       Warning ({Math.Abs(rpmFromThreshold)} RPM from threshold) - {frequency:F0}Hz    ");
     }
@@ -152,14 +151,14 @@ while (true)
         Console.WriteLine($"Status:       Normal ({Math.Abs(rpmFromThreshold)} RPM from threshold)              ");
     }
 
-    Thread.Sleep(50); // Update at ~20Hz
+    Thread.Sleep(50); // ~20Hz update rate
 }
 
 audioEngine.Stop();
 Console.Clear();
 Console.WriteLine("\nExiting...");
 
-// Helper method for diagnostics
+// Helper to show ACC status in readable format
 static string GetStatusName(int status)
 {
     return status switch

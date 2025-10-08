@@ -49,8 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Audio Specifications
 - Triangle wave synthesis for smooth, non-fatiguing audio
 - Base frequencies:
-  - Gears 1-2: 500-600 Hz
-  - Gear 3+: Increases by 100 Hz per gear
+  - Gear 1: 500-600 Hz
+  - Gear 2+: Increases by 100 Hz per gear (600-700, 700-800, etc.)
 - Beeping pattern: 100ms on / 100ms off
 - Volume: 15% amplitude for comfortable listening
 - Frequency rises smoothly over 200 RPM range (300 to 100 RPM below threshold)
@@ -70,6 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SharpDX.DirectInput 4.2.0
 
 ## [Unreleased]
+
+### Changed
+- **Audio Frequencies**: Fixed gear 2 to use its own frequency range (600-700 Hz) instead of sharing with gear 1
+  - Gear 1: 500-600 Hz (unchanged)
+  - Gear 2: 600-700 Hz (now unique)
+  - Gear 3: 700-800 Hz (shifted up from 600-700)
+  - Gear 4+: Each subsequent gear increases by 100 Hz
+  - This ensures each gear has a distinct audio cue for better feedback
+
+### Removed
+- Removed redundant `ACCSharedMemory.cs` file (project uses the simplified version)
 
 ### Planned Features
 - GUI interface option

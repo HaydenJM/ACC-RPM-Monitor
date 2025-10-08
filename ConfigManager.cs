@@ -2,9 +2,7 @@ using System.Text.Json;
 
 namespace ACCRPMMonitor;
 
-/// <summary>
-/// Manages loading and saving of RPM configuration
-/// </summary>
+// Handles loading and saving of per-vehicle RPM configs
 public class ConfigManager
 {
     private readonly string _configsDirectory;
@@ -14,10 +12,6 @@ public class ConfigManager
         WriteIndented = true
     };
 
-    /// <summary>
-    /// Initializes the ConfigManager with powercurves directory
-    /// </summary>
-    /// <param name="vehicleName">Name of the vehicle configuration to use</param>
     public ConfigManager(string vehicleName = "default")
     {
         // Store configs in AppData\Local\ACCRPMMonitor\powercurves
@@ -25,16 +19,12 @@ public class ConfigManager
         string appFolder = Path.Combine(appDataPath, "ACCRPMMonitor");
         _configsDirectory = Path.Combine(appFolder, "powercurves");
 
-        // Create directory if it doesn't exist
         Directory.CreateDirectory(_configsDirectory);
 
         _currentVehicleName = vehicleName;
     }
 
-    /// <summary>
-    /// Loads the configuration from file, or creates default if not found
-    /// </summary>
-    /// <returns>Loaded or default configuration</returns>
+    // Loads config from file, or creates default if it doesn't exist
     public GearRPMConfig LoadConfig()
     {
         try
@@ -53,7 +43,7 @@ public class ConfigManager
                 }
             }
 
-            // Create and save default config if file doesn't exist
+            // No config found - create and save default
             Console.WriteLine($"No configuration found. Creating default at: {configFilePath}");
             var defaultConfig = GearRPMConfig.CreateDefault();
             SaveConfig(defaultConfig);
@@ -67,11 +57,7 @@ public class ConfigManager
         }
     }
 
-    /// <summary>
-    /// Saves the configuration to file
-    /// </summary>
-    /// <param name="config">Configuration to save</param>
-    /// <returns>True if saved successfully, false otherwise</returns>
+    // Saves config to file
     public bool SaveConfig(GearRPMConfig config)
     {
         try
@@ -89,44 +75,27 @@ public class ConfigManager
         }
     }
 
-    /// <summary>
-    /// Gets the full path to the configuration file for the current vehicle
-    /// </summary>
     public string ConfigFilePath => GetConfigPath(_currentVehicleName);
 
-    /// <summary>
-    /// Gets the path for a specific vehicle config
-    /// </summary>
     private string GetConfigPath(string vehicleName)
     {
         return Path.Combine(_configsDirectory, $"{vehicleName}.json");
     }
 
-    /// <summary>
-    /// Gets the current vehicle name
-    /// </summary>
     public string CurrentVehicleName => _currentVehicleName;
 
-    /// <summary>
-    /// Sets the current vehicle name
-    /// </summary>
     public void SetVehicle(string vehicleName)
     {
         _currentVehicleName = vehicleName;
     }
 
-    /// <summary>
-    /// Lists all available vehicle configurations
-    /// </summary>
+    // Lists all available vehicle configs in the directory
     public List<string> GetAvailableVehicles()
     {
         var files = Directory.GetFiles(_configsDirectory, "*.json");
         return files.Select(f => Path.GetFileNameWithoutExtension(f)).OrderBy(n => n).ToList();
     }
 
-    /// <summary>
-    /// Deletes a vehicle configuration
-    /// </summary>
     public bool DeleteVehicle(string vehicleName)
     {
         try
@@ -145,9 +114,6 @@ public class ConfigManager
         }
     }
 
-    /// <summary>
-    /// Checks if a vehicle configuration exists
-    /// </summary>
     public bool VehicleExists(string vehicleName)
     {
         return File.Exists(GetConfigPath(vehicleName));
