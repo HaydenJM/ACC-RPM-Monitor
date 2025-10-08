@@ -102,5 +102,5 @@ $RECYCLE.BIN/
 # macOS
 .DS_Store
 
-# Claude Code
+# Local settings
 .claude/
