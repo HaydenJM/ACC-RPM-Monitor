@@ -20,7 +20,7 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 
 ## How It Works
 
-1. **Connect**: Launches automatically and waits for ACC to start
+1. **Connect**: Launch ACC and join a session
 2. **Monitor**: Reads current gear and RPM data in real-time (~20Hz update rate)
 3. **Alert**: Provides progressive audio feedback:
    - **Silent**: More than 300 RPM below shift point
