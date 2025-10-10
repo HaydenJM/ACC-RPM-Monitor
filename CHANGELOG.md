@@ -69,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NAudio 2.2.1
 - SharpDX.DirectInput 4.2.0
 
-## [Unreleased]
+## [2.0.0] - 2025-10-10
 
 ### Added
 - **New Main Menu System**: Restructured UI with clear workflow options
