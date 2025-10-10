@@ -6,6 +6,8 @@ public class OptimalShiftAnalyzer
     private readonly List<TelemetryDataPoint> _dataPoints = new();
     private const float FullThrottleThreshold = 0.95f;
     private const int MinDataPointsPerGear = 50; // Need enough data to be confident
+    private const float MinConfidenceThreshold = 0.50f; // Minimum acceptable confidence
+    private DateTime _sessionStart = DateTime.Now;
 
     // Adds a telemetry data point during data collection
     public void AddDataPoint(int rpm, float throttle, float speed, int gear)
@@ -90,16 +92,22 @@ public class OptimalShiftAnalyzer
         return config;
     }
 
+    // Calculates confidence level based on number of data points with explanation
+    private (float score, string reason) CalculateConfidenceWithReason(int dataPoints)
+    {
+        if (dataPoints < MinDataPointsPerGear)
+            return (0f, $"Insufficient data: only {dataPoints} points (need at least {MinDataPointsPerGear})");
+        if (dataPoints < 100)
+            return (0.5f, $"Low confidence: {dataPoints} points (minimal data collected)");
+        if (dataPoints < 200)
+            return (0.75f, $"Medium confidence: {dataPoints} points (moderate data collected)");
+        return (1.0f, $"High confidence: {dataPoints} points (abundant data collected)");
+    }
+
     // Calculates confidence level based on number of data points
     private float CalculateConfidence(int dataPoints)
     {
-        if (dataPoints < MinDataPointsPerGear)
-            return 0f;
-        if (dataPoints < 100)
-            return 0.5f;
-        if (dataPoints < 200)
-            return 0.75f;
-        return 1.0f; // High confidence
+        return CalculateConfidenceWithReason(dataPoints).score;
     }
 
     // Returns averaged/smoothed data per gear for visualization
@@ -125,9 +133,111 @@ public class OptimalShiftAnalyzer
     public void Clear()
     {
         _dataPoints.Clear();
+        _sessionStart = DateTime.Now;
     }
 
     public int GetDataPointCount() => _dataPoints.Count;
+
+    // Generates a detailed data collection report for gears 1-6
+    public DataCollectionReport GenerateDetailedReport(string vehicleName)
+    {
+        var report = new DataCollectionReport
+        {
+            SessionStart = _sessionStart,
+            SessionEnd = DateTime.Now,
+            VehicleName = vehicleName,
+            TotalDataPoints = _dataPoints.Count
+        };
+
+        var gearAnalyses = new List<DataCollectionReport.GearAnalysis>();
+        int successfulGears = 0;
+
+        // Analyze gears 1-6 specifically
+        for (int gear = 1; gear <= 6; gear++)
+        {
+            var analysis = AnalyzeGear(gear);
+            gearAnalyses.Add(analysis);
+            if (analysis.PassedConfidenceThreshold && analysis.OptimalShiftRPM.HasValue)
+            {
+                successfulGears++;
+            }
+        }
+
+        report.GearAnalyses = gearAnalyses;
+
+        // Determine overall success: need all gears 1-6 with sufficient confidence
+        report.OverallSuccess = successfulGears == 6;
+
+        // Generate summary
+        if (report.OverallSuccess)
+        {
+            report.SessionSummary = $"SUCCESS: All 6 gears have optimal shift points detected with sufficient confidence.";
+        }
+        else
+        {
+            int failedGears = 6 - successfulGears;
+            report.SessionSummary = $"INCOMPLETE: {successfulGears}/6 gears successfully analyzed. {failedGears} gear(s) need more data.";
+        }
+
+        // Generate recommendations
+        foreach (var analysis in gearAnalyses.Where(a => !a.PassedConfidenceThreshold || !a.OptimalShiftRPM.HasValue))
+        {
+            if (!analysis.OptimalShiftRPM.HasValue)
+            {
+                report.Recommendations.Add($"Gear {analysis.Gear}: Could not detect optimal shift point. Make sure to reach near redline in this gear during full throttle.");
+            }
+            else if (analysis.ConfidenceScore < MinConfidenceThreshold)
+            {
+                report.Recommendations.Add($"Gear {analysis.Gear}: Need more full-throttle data points (currently {analysis.FullThrottleDataPoints}, need at least {MinDataPointsPerGear}).");
+            }
+        }
+
+        if (!report.OverallSuccess)
+        {
+            report.Recommendations.Add("Perform another hotlap focusing on the gears that failed, making sure to redline each gear under full throttle.");
+        }
+
+        return report;
+    }
+
+    // Analyzes a specific gear in detail
+    private DataCollectionReport.GearAnalysis AnalyzeGear(int gear)
+    {
+        var allGearData = _dataPoints.Where(p => p.Gear == gear).ToList();
+        var fullThrottleData = allGearData.Where(p => p.Throttle >= FullThrottleThreshold).ToList();
+
+        var analysis = new DataCollectionReport.GearAnalysis
+        {
+            Gear = gear,
+            TotalDataPoints = allGearData.Count,
+            FullThrottleDataPoints = fullThrottleData.Count
+        };
+
+        if (fullThrottleData.Count > 0)
+        {
+            analysis.MinRPM = fullThrottleData.Min(p => p.RPM);
+            analysis.MaxRPM = fullThrottleData.Max(p => p.RPM);
+            analysis.MinSpeed = fullThrottleData.Min(p => p.Speed);
+            analysis.MaxSpeed = fullThrottleData.Max(p => p.Speed);
+
+            // Calculate RPM distribution (100 RPM buckets)
+            var distribution = fullThrottleData
+                .GroupBy(p => (p.RPM / 100) * 100)
+                .ToDictionary(g => g.Key, g => g.Count());
+            analysis.RPMDistribution = distribution;
+        }
+
+        // Calculate optimal shift point
+        analysis.OptimalShiftRPM = CalculateOptimalUpshiftRPM(gear);
+
+        // Calculate confidence with reason
+        var (score, reason) = CalculateConfidenceWithReason(fullThrottleData.Count);
+        analysis.ConfidenceScore = score;
+        analysis.ConfidenceReason = reason;
+        analysis.PassedConfidenceThreshold = score >= MinConfidenceThreshold && analysis.OptimalShiftRPM.HasValue;
+
+        return analysis;
+    }
 }
 
 // Represents a single telemetry data point

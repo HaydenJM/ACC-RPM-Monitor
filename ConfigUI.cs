@@ -3,6 +3,45 @@ namespace ACCRPMMonitor;
 // Simple console UI for managing vehicle configs and editing RPM thresholds
 public static class ConfigUI
 {
+    // Main menu - entry point for the application
+    public static MainMenuChoice ShowMainMenu(ConfigManager configManager)
+    {
+        while (true)
+        {
+            Console.Clear();
+            Console.WriteLine("=".PadRight(80, '='));
+            Console.WriteLine("ACC RPM MONITOR");
+            Console.WriteLine("=".PadRight(80, '='));
+            Console.WriteLine();
+            Console.WriteLine($"Current Vehicle: {configManager.CurrentVehicleName}");
+            Console.WriteLine();
+            Console.WriteLine("Main Menu:");
+            Console.WriteLine();
+            Console.WriteLine("  [1] Create Auto Configuration (Data Collection)");
+            Console.WriteLine("      Perform a hotlap and let the app learn optimal shift points");
+            Console.WriteLine();
+            Console.WriteLine("  [2] Create/Edit Manual Configuration");
+            Console.WriteLine("      Manually define RPM shift points for each gear");
+            Console.WriteLine();
+            Console.WriteLine("  [3] Select & Use Configuration (Start Monitoring)");
+            Console.WriteLine("      Choose a config and start the RPM monitor");
+            Console.WriteLine();
+            Console.WriteLine("  [4] Change Vehicle");
+            Console.WriteLine("      Switch to a different vehicle");
+            Console.WriteLine();
+            Console.WriteLine("  [5] Exit");
+            Console.WriteLine();
+
+            Console.Write("Select option (1-5): ");
+            string? input = Console.ReadLine();
+
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 5)
+            {
+                return (MainMenuChoice)choice;
+            }
+        }
+    }
+
     // Main vehicle selection menu
     public static void ShowVehicleSelectionMenu(ConfigManager configManager)
     {
@@ -281,4 +320,14 @@ public static class ConfigUI
             Console.ReadKey();
         }
     }
+}
+
+// Main menu options enum
+public enum MainMenuChoice
+{
+    CreateAutoConfig = 1,
+    CreateManualConfig = 2,
+    SelectAndUseConfig = 3,
+    ChangeVehicle = 4,
+    Exit = 5
 }

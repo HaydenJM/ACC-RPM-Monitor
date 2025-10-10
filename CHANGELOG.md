@@ -72,18 +72,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **New Main Menu System**: Restructured UI with clear workflow options
+  - Create Auto Configuration (Data Collection)
+  - Create/Edit Manual Configuration
+  - Select & Use Configuration (Start Monitoring)
+  - Change Vehicle
+  - Exit
+  - Application now returns to main menu after completing tasks
+
+- **Dedicated Auto Configuration Workflow**: Separate mode for data collection
+  - Step-by-step instructions for hotlap sessions (Monza or Paul Ricard recommended)
+  - F1 key controls data collection start/stop
+  - Focuses on gears 1-6 for comprehensive shift point detection
+  - Immediate analysis and feedback after collection
+  - Option to retry collection if data insufficient
+  - Returns to main menu when complete
+
+- **Comprehensive Data Collection Reports**: Detailed analysis of every auto-config session
+  - JSON and human-readable text reports saved for each session
+  - Per-gear analysis showing:
+    - Total data points collected
+    - Full-throttle data points
+    - RPM and speed ranges observed
+    - Optimal shift point detected
+    - Confidence score with detailed explanation
+    - RPM distribution histograms
+  - Overall success/failure status
+  - Specific recommendations for improvement
+  - Reports saved to `%LocalAppData%/ACCRPMMonitor/reports/`
+  - Explains how confidence scores are calculated
+  - Shows exactly what the application looks for in data
+
+- **Enhanced Confidence Scoring System**: Transparent shift point validation
+  - Requires all gears 1-6 to have valid shift points
+  - Minimum confidence threshold of 0.50 (50 data points)
+  - Confidence levels:
+    - < 50 points: 0.00 (Insufficient data)
+    - 50-99 points: 0.50 (Low confidence)
+    - 100-199 points: 0.75 (Medium confidence)
+    - 200+ points: 1.00 (High confidence)
+  - Clear explanations for each gear's score
+  - Automatic removal of low-confidence gears with retry option
+
 - **Dynamic Audio Warning System**: Audio warning timing now adapts based on RPM rate of change
-  - Fast RPM increase (>500 RPM/sec): Warns 500+ RPM early
-  - Moderate increase (200-500 RPM/sec): Standard 300 RPM warning
-  - Slow increase (<200 RPM/sec): Warns only 200 RPM early
+  - Very fast increase (>1500 RPM/sec): Beeps 400 RPM early
+  - Fast increase (>1000 RPM/sec): Beeps 300 RPM early
+  - Moderate-fast increase (>600 RPM/sec): Beeps 250 RPM early
+  - Moderate increase (>300 RPM/sec): Beeps 200 RPM early
+  - Slow-moderate increase (>150 RPM/sec): Beeps 150 RPM early
+  - Slow increase (>50 RPM/sec): Beeps 100 RPM early
+  - Very slow/stable: Beeps 50 RPM early
   - Prevents late warnings in lower gears where RPMs climb quickly
 
 - **Automatic Optimal Shift Point Detection**: System learns best shift points from your driving
   - Analyzes telemetry data during full-throttle acceleration
   - Calculates optimal upshift RPM per gear (lowest RPM achieving max speed)
-  - Auto mode: Automatically collects data and updates configuration
-  - Manual mode: Optional data collection via F1 key toggle
   - Saves vehicle-specific auto-generated configs
+  - Detailed reporting on data quality and confidence
 
 - **Automatic Vehicle Detection**: Detects current car from ACC and loads appropriate config
   - Reads vehicle name from ACC static shared memory
@@ -92,32 +137,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Dual Configuration Mode System**:
   - **Manual Mode**: Traditional user-defined RPM values (fully editable)
-  - **Auto Mode**: Uses AI-learned optimal shift points (read-only, auto-updates)
-  - Easy switching between modes via startup menu
+  - **Auto Mode**: Uses learned optimal shift points (read-only)
+  - Easy switching between modes via menu
   - Separate config files for each mode per vehicle
 
 ### Changed
+- **Audio System Completely Redesigned**:
+  - Removed rising tone phase entirely
+  - Only urgent beeping alert remains
+  - Dynamic timing logic now applied to beeping (was applied to rising tone)
+  - Beeping frequency is static per gear (no frequency ramping)
+  - Beeping start point adapts to RPM acceleration rate
+  - Simpler, more predictable audio behavior
+
 - **Audio Frequencies**: Fixed gear 2 to use its own frequency range (600-700 Hz) instead of sharing with gear 1
-  - Gear 1: 500-600 Hz (unchanged)
-  - Gear 2: 600-700 Hz (now unique)
-  - Gear 3: 700-800 Hz (shifted up from 600-700)
+  - Gear 1: 500 Hz
+  - Gear 2: 600 Hz
+  - Gear 3: 700 Hz
   - Gear 4+: Each subsequent gear increases by 100 Hz
   - This ensures each gear has a distinct audio cue for better feedback
 
-- Replaced `AudioEngine` with `DynamicAudioEngine` for adaptive warning timing
-- Enhanced status display with RPM rate and dynamic warning distance
+- **Program Flow**: Complete restructure of main application loop
+  - Menu-driven interface replaces linear flow
+  - Monitoring mode separated into dedicated function
+  - Removed data collection from monitoring mode
+  - Cleaner separation of concerns
+  - Auto-creates default config if none exists
+
+- Enhanced status display with RPM rate and dynamic beeping distance
 - Config files now support metadata (last updated, data points, confidence levels)
+- Updated console output to show "Beep Dist" instead of "Warning Dist"
 
 ### Removed
 - Removed redundant `ACCSharedMemory.cs` file (project uses the simplified version)
+- Removed F1 data collection toggle from monitoring mode (now has dedicated workflow)
+- Removed automatic config updates during monitoring
 
 ### Technical Details
-- New `OptimalShiftAnalyzer` class for shift point calculation
+- New `DataCollectionReport` class for comprehensive session reporting
+- New `AutoConfigWorkflow` class for dedicated data collection mode
+- New `OptimalShiftAnalyzer.GenerateDetailedReport()` for analysis transparency
+- New `MainMenuChoice` enum for menu navigation
 - New `VehicleDetector` class for automatic car identification
-- New `DynamicAudioEngine` with RPM rate tracking (200ms window)
+- Enhanced `OptimalShiftAnalyzer` with confidence scoring explanations
+- Updated `DynamicAudioEngine` with simplified audio logic and adaptive beeping
 - Enhanced `GearRPMConfig` with auto-generation metadata
 - Updated `ConfigManager` to handle dual-mode configurations
-- F1 key toggles data collection during driving
+- Refactored `Program.cs` into menu-driven architecture
 
 ### Planned Features
 - GUI interface option
