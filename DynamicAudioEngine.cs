@@ -23,6 +23,17 @@ public class DynamicAudioEngine : IDisposable
     // Updates audio with dynamic beeping threshold based on RPM acceleration
     public void UpdateRPM(int currentRPM, int threshold, int currentGear)
     {
+        // No audio in 6th gear or higher
+        if (currentGear >= 6)
+        {
+            if (_isPlaying)
+            {
+                _waveOut.Stop();
+                _isPlaying = false;
+            }
+            return;
+        }
+
         // Track RPM history for rate calculation
         DateTime now = DateTime.Now;
         _rpmHistory.Enqueue((currentRPM, now));

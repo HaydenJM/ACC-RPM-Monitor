@@ -147,7 +147,7 @@ public class DataCollectionReport
             writer.WriteLine("where the power curve has peaked and it's time to shift up.");
             writer.WriteLine();
             writer.WriteLine("For a successful auto configuration, we require:");
-            writer.WriteLine("  • Gears 1-6 must have shift points detected");
+            writer.WriteLine("  • Gears 1-5 must have shift points detected");
             writer.WriteLine("  • Each gear must have confidence score >= 0.50");
             writer.WriteLine("  • At least 3 gears total with valid data");
             writer.WriteLine();

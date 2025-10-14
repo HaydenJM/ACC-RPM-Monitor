@@ -16,7 +16,7 @@ public static class AutoConfigWorkflow
         Console.WriteLine("  1. Load Monza or Paul Ricard in Assetto Corsa Competizione");
         Console.WriteLine("  2. Start a practice or hotlap session");
         Console.WriteLine("  3. Press F1 to START data collection");
-        Console.WriteLine("  4. Drive a hotlap, making sure to redline gears 1-6 under full throttle");
+        Console.WriteLine("  4. Drive a hotlap, making sure to redline gears 1-5 under full throttle");
         Console.WriteLine("  5. Press F1 to STOP data collection when done");
         Console.WriteLine("  6. The app will analyze the data and show results");
         Console.WriteLine();
@@ -164,8 +164,8 @@ public static class AutoConfigWorkflow
 
             int displayGear = currentGear - 1;
 
-            // Collect data if enabled and driving
-            if (collectingData && isDriving && currentGear >= 2)
+            // Collect data if enabled and driving (only gears 1-5)
+            if (collectingData && isDriving && currentGear >= 2 && displayGear < 6)
             {
                 // Estimate throttle from RPM rate (simplified - ideally read from physics memory)
                 // For now, assume full throttle if RPM is increasing quickly

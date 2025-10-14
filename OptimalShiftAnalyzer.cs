@@ -138,7 +138,7 @@ public class OptimalShiftAnalyzer
 
     public int GetDataPointCount() => _dataPoints.Count;
 
-    // Generates a detailed data collection report for gears 1-6
+    // Generates a detailed data collection report for gears 1-5
     public DataCollectionReport GenerateDetailedReport(string vehicleName)
     {
         var report = new DataCollectionReport
@@ -152,8 +152,8 @@ public class OptimalShiftAnalyzer
         var gearAnalyses = new List<DataCollectionReport.GearAnalysis>();
         int successfulGears = 0;
 
-        // Analyze gears 1-6 specifically
-        for (int gear = 1; gear <= 6; gear++)
+        // Analyze gears 1-5 specifically
+        for (int gear = 1; gear <= 5; gear++)
         {
             var analysis = AnalyzeGear(gear);
             gearAnalyses.Add(analysis);
@@ -165,18 +165,18 @@ public class OptimalShiftAnalyzer
 
         report.GearAnalyses = gearAnalyses;
 
-        // Determine overall success: need all gears 1-6 with sufficient confidence
-        report.OverallSuccess = successfulGears == 6;
+        // Determine overall success: need all gears 1-5 with sufficient confidence
+        report.OverallSuccess = successfulGears == 5;
 
         // Generate summary
         if (report.OverallSuccess)
         {
-            report.SessionSummary = $"SUCCESS: All 6 gears have optimal shift points detected with sufficient confidence.";
+            report.SessionSummary = $"SUCCESS: All 5 gears have optimal shift points detected with sufficient confidence.";
         }
         else
         {
-            int failedGears = 6 - successfulGears;
-            report.SessionSummary = $"INCOMPLETE: {successfulGears}/6 gears successfully analyzed. {failedGears} gear(s) need more data.";
+            int failedGears = 5 - successfulGears;
+            report.SessionSummary = $"INCOMPLETE: {successfulGears}/5 gears successfully analyzed. {failedGears} gear(s) need more data.";
         }
 
         // Generate recommendations
