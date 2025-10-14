@@ -153,3 +153,87 @@ public class DynamicAudioEngine : IDisposable
         _waveOut?.Dispose();
     }
 }
+
+// Generates triangle wave audio with optional beeping
+internal class TriangleWaveProvider : ISampleProvider
+{
+    private float _frequency;
+    private float _phase;
+    private bool _isBeeping;
+    private int _samplesSinceBeepToggle;
+    private bool _beepOn = true;
+    private const int BeepOnSamples = 4410; // ~100ms at 44.1kHz
+    private const int BeepOffSamples = 4410;
+    private const float Amplitude = 0.15f;
+
+    public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+
+    public void SetFrequency(float frequency)
+    {
+        _frequency = frequency;
+    }
+
+    public void SetBeeping(bool isBeeping)
+    {
+        if (_isBeeping != isBeeping)
+        {
+            _isBeeping = isBeeping;
+            _samplesSinceBeepToggle = 0;
+            _beepOn = true;
+        }
+    }
+
+    public int Read(float[] buffer, int offset, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            float sample = 0f;
+
+            // Handle beeping mode (100ms on/off pattern)
+            if (_isBeeping)
+            {
+                _samplesSinceBeepToggle++;
+
+                if (_beepOn && _samplesSinceBeepToggle >= BeepOnSamples)
+                {
+                    _beepOn = false;
+                    _samplesSinceBeepToggle = 0;
+                }
+                else if (!_beepOn && _samplesSinceBeepToggle >= BeepOffSamples)
+                {
+                    _beepOn = true;
+                    _samplesSinceBeepToggle = 0;
+                }
+
+                if (!_beepOn)
+                {
+                    buffer[offset + i] = 0f;
+                    continue;
+                }
+            }
+
+            // Generate triangle wave sample
+            float phaseValue = _phase % 1.0f;
+
+            if (phaseValue < 0.5f)
+            {
+                // Rising edge: 0 to 0.5 maps to -1 to 1
+                sample = (phaseValue * 4f - 1f) * Amplitude;
+            }
+            else
+            {
+                // Falling edge: 0.5 to 1 maps to 1 to -1
+                sample = (3f - phaseValue * 4f) * Amplitude;
+            }
+
+            buffer[offset + i] = sample;
+
+            // Advance phase
+            _phase += _frequency / WaveFormat.SampleRate;
+            if (_phase >= 1.0f)
+                _phase -= 1.0f;
+        }
+
+        return count;
+    }
+}
