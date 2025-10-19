@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net6.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -11,6 +11,7 @@
   <ItemGroup>
     <PackageReference Include="SharpDX.DirectInput" Version="4.2.0" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="ScottPlot" Version="5.0.57" />
   </ItemGroup>
 
 </Project>

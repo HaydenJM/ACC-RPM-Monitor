@@ -20,11 +20,22 @@ public class DynamicAudioEngine : IDisposable
         _waveOut.Init(_waveProvider);
     }
 
-    // Updates audio with dynamic beeping threshold based on RPM acceleration
+    // Updates audio with dynamic volume ramping based on proximity to threshold
     public void UpdateRPM(int currentRPM, int threshold, int currentGear)
     {
         // No audio in 6th gear or higher
         if (currentGear >= 6)
+        {
+            if (_isPlaying)
+            {
+                _waveOut.Stop();
+                _isPlaying = false;
+            }
+            return;
+        }
+
+        // Hard-coded minimum RPM threshold - never play audio below 6000 RPM
+        if (currentRPM < 6000)
         {
             if (_isPlaying)
             {
@@ -47,19 +58,35 @@ public class DynamicAudioEngine : IDisposable
         // Calculate RPM rate of change (RPM per second)
         float rpmRate = CalculateRPMRate();
 
-        // Dynamic beeping distance based on RPM acceleration
-        int beepDistance = CalculateDynamicBeepDistance(rpmRate);
+        // Dynamic warning distance based on RPM acceleration
+        int warningDistance = CalculateDynamicBeepDistance(rpmRate);
 
         int rpmFromThreshold = currentRPM - threshold;
 
         // Each gear gets its own frequency, starting at 500Hz
         float frequency = 500f + (currentGear - 1) * 100f;
 
-        // Beeping phase - starts at dynamic distance based on RPM rate
-        if (rpmFromThreshold >= -beepDistance)
+        // Start playing steady tone when approaching threshold
+        if (rpmFromThreshold >= -warningDistance)
         {
+            // Calculate volume based on proximity to threshold (0.0 to 1.0)
+            // Volume increases from quiet to full as we approach threshold
+            float volumePercent;
+            if (rpmFromThreshold >= 0)
+            {
+                // At or above threshold - full volume
+                volumePercent = 1.0f;
+            }
+            else
+            {
+                // Below threshold - ramp volume from 0 to 1
+                volumePercent = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
+                volumePercent = Math.Max(0.0f, Math.Min(1.0f, volumePercent)); // Clamp to 0-1
+            }
+
             _waveProvider.SetFrequency(frequency);
-            _waveProvider.SetBeeping(true);
+            _waveProvider.SetVolume(volumePercent);
+            _waveProvider.SetBeeping(false); // Steady tone, not beeping
 
             if (!_isPlaying)
             {
@@ -98,32 +125,32 @@ public class DynamicAudioEngine : IDisposable
     // Determines how far before threshold to start beeping based on RPM acceleration
     private int CalculateDynamicBeepDistance(float rpmRatePerSecond)
     {
-        // Very fast RPM increase (>1500 RPM/sec) - beep much earlier
+        // Very fast RPM increase (>1500 RPM/sec) - beep earlier to give reaction time
         if (rpmRatePerSecond > 1500f)
-            return 400; // Start beeping 400 RPM below threshold
+            return 200; // Start beeping 200 RPM below threshold
 
-        // Fast RPM increase (>1000 RPM/sec) - beep earlier
+        // Fast RPM increase (>1000 RPM/sec)
         if (rpmRatePerSecond > 1000f)
-            return 300; // Start beeping 300 RPM below threshold
+            return 150; // Start beeping 150 RPM below threshold
 
         // Moderate-fast increase (>600 RPM/sec)
         if (rpmRatePerSecond > 600f)
-            return 250;
+            return 120;
 
         // Moderate increase (>300 RPM/sec)
         if (rpmRatePerSecond > 300f)
-            return 200;
+            return 100;
 
         // Slow-moderate increase (>150 RPM/sec)
         if (rpmRatePerSecond > 150f)
-            return 150;
+            return 80;
 
         // Slow increase (>50 RPM/sec) - beep close to threshold
         if (rpmRatePerSecond > 50f)
-            return 100;
+            return 50;
 
         // Very slow or stable - beep right at threshold
-        return 50;
+        return 30;
     }
 
     // Gets the current RPM rate for display purposes
@@ -154,23 +181,29 @@ public class DynamicAudioEngine : IDisposable
     }
 }
 
-// Generates triangle wave audio with optional beeping
+// Generates triangle wave audio with optional beeping and volume control
 internal class TriangleWaveProvider : ISampleProvider
 {
     private float _frequency;
     private float _phase;
     private bool _isBeeping;
+    private float _volume = 1.0f; // Volume multiplier (0.0 to 1.0)
     private int _samplesSinceBeepToggle;
     private bool _beepOn = true;
     private const int BeepOnSamples = 4410; // ~100ms at 44.1kHz
     private const int BeepOffSamples = 4410;
-    private const float Amplitude = 0.15f;
+    private const float BaseAmplitude = 0.15f;
 
     public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
 
     public void SetFrequency(float frequency)
     {
         _frequency = frequency;
+    }
+
+    public void SetVolume(float volume)
+    {
+        _volume = Math.Max(0.0f, Math.Min(1.0f, volume)); // Clamp to 0-1
     }
 
     public void SetBeeping(bool isBeeping)
@@ -218,12 +251,12 @@ internal class TriangleWaveProvider : ISampleProvider
             if (phaseValue < 0.5f)
             {
                 // Rising edge: 0 to 0.5 maps to -1 to 1
-                sample = (phaseValue * 4f - 1f) * Amplitude;
+                sample = (phaseValue * 4f - 1f) * BaseAmplitude * _volume;
             }
             else
             {
                 // Falling edge: 0.5 to 1 maps to 1 to -1
-                sample = (3f - phaseValue * 4f) * Amplitude;
+                sample = (3f - phaseValue * 4f) * BaseAmplitude * _volume;
             }
 
             buffer[offset + i] = sample;

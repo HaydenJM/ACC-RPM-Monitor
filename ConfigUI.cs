@@ -29,13 +29,16 @@ public static class ConfigUI
             Console.WriteLine("  [4] Change Vehicle");
             Console.WriteLine("      Switch to a different vehicle");
             Console.WriteLine();
-            Console.WriteLine("  [5] Exit");
+            Console.WriteLine("  [5] Open Config Folder");
+            Console.WriteLine("      Open the configuration and reports folder in File Explorer");
+            Console.WriteLine();
+            Console.WriteLine("  [6] Exit");
             Console.WriteLine();
 
-            Console.Write("Select option (1-5): ");
+            Console.Write("Select option (1-6): ");
             string? input = Console.ReadLine();
 
-            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 5)
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 6)
             {
                 return (MainMenuChoice)choice;
             }
@@ -329,5 +332,6 @@ public enum MainMenuChoice
     CreateManualConfig = 2,
     SelectAndUseConfig = 3,
     ChangeVehicle = 4,
-    Exit = 5
+    OpenConfigFolder = 5,
+    Exit = 6
 }

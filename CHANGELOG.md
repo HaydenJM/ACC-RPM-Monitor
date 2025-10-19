@@ -201,6 +201,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2025-10-19
+
+### Added
+- **Open Config Folder Menu Option**: New main menu option to open the configuration/reports folder in Windows Explorer
+  - Quickly access power curve graphs, reports, and configuration files
+  - Creates folder if it doesn't exist
+  - Shows full path for easy navigation
+
+- **Power Curve Graph Generation**: Automatically generates professional PNG graphs after successful auto-configuration
+  - 1920x1080 high-resolution graphs
+  - Shows acceleration curves for gears 1-5 with color-coded lines
+  - Displays calculated gear ratios in annotation box
+  - Marks optimal shift points with diamond markers
+  - Timestamped filenames for easy tracking
+  - Saved to `%LocalAppData%/ACCRPMMonitor/reports/`
+
+- **Per-Gear Data Collection Display**: Real-time visibility into data collection progress
+  - Shows individual gear data point counts: `G1:32 G2:28 G3:41 G4:26 G5:15`
+  - Displays total data points collected
+  - Clear status messages explaining why data is/isn't being collected
+  - Shows exact throttle percentage and speed values
+  - Diagnostic info showing ACC gear vs display gear
+
+### Changed
+- **Adaptive Mode Reverted to Time-Based Updates**: Changed from lap-based to 30-second interval updates
+  - Updates shift points every 30 seconds based on live data
+  - No longer requires completing laps
+  - User manually exits when satisfied with configuration
+  - More flexible for track configuration and testing
+
+- **Audio System Redesigned - Steady Tone with Volume Ramping**: Replaced beeping pattern with smooth volume control
+  - **Steady continuous tone** instead of on/off beeping
+  - Volume gradually increases from quiet to full as RPM approaches threshold
+  - Volume calculation: `volumePercent = 1.0 - (distance_from_threshold / warning_distance)`
+  - More natural and less distracting audio feedback
+  - Each gear still has distinct frequency (500Hz + gear * 100Hz)
+
+- **Hard-Coded 6000 RPM Minimum Threshold**: Audio will never play below 6000 RPM
+  - Prevents audio at low RPMs where shifting is never beneficial
+  - Overrides all other threshold calculations
+  - Applies to all gears and modes
+
+- **Relaxed Data Collection Thresholds**: Made data collection more practical for real-world use
+  - **Throttle threshold**: Lowered from 95% → 85% (more realistic for sim racing)
+  - **Minimum data points**: Lowered from 50 → 30 per gear (faster config generation)
+  - **Speed filter**: Changed from 0 km/h → 5 km/h (allows early acceleration data)
+  - **Confidence scoring**: Adjusted to match new thresholds
+    - 30-59 points: 60% confidence (Acceptable)
+    - 60-119 points: 80% confidence (Good)
+    - 120+ points: 100% confidence (High)
+
+### Fixed
+- **Critical Data Collection Bug**: Fixed gear validation preventing any data from being collected
+  - Changed `if (displayGear < 6)` to `if (displayGear >= 1 && displayGear <= 5)`
+  - Was allowing invalid gears (0, -1, 6+) to be processed
+  - Now correctly validates gears 1-5 only
+  - Applied fix to both Auto Config Workflow and Adaptive Mode
+
+- **Speed Reading Bug**: Fixed incorrect shared memory offset causing speed to read as 0.0 km/h
+  - Changed speed offset from 24 → 28 bytes in ACC physics memory structure
+  - Was reading SteerAngle instead of SpeedKmh
+  - Speed now displays correctly while moving
+  - Fixes data collection filtering that was rejecting all data
+
+- **Lap Count Reading**: Added proper lap completion tracking from ACC graphics memory
+  - Reads completed laps from offset 76 in graphics shared memory
+  - Enables lap-based features and statistics
+
+### Technical Details
+- Added ScottPlot 5.1.57 dependency for graph generation
+- New `PowerCurveGraphGenerator` class for creating power curve visualizations
+- New `GetDataPointCountForGear()` method in OptimalShiftAnalyzer for per-gear diagnostics
+- Updated `ACCSharedMemorySimple.ReadFullTelemetry()` with correct speed offset (28 bytes)
+- New `ACCSharedMemorySimple.ReadCompletedLaps()` method for lap tracking
+- Enhanced `DynamicAudioEngine.UpdateRPM()` with volume ramping logic
+- Added `SetVolume()` method to TriangleWaveProvider
+- Changed TriangleWaveProvider amplitude calculation to use volume multiplier
+
+### Dependencies Updated
+- Added: ScottPlot 5.1.57 (graph generation)
+
+---
+
 ## Version History Summary
 
+- **v2.1.0** (2025-10-19) - Major improvements to data collection, audio system, and diagnostics
+- **v2.0.0** (2025-10-10) - Auto-configuration workflow, adaptive mode, and reporting system
 - **v1.0.0** (2025-10-07) - Initial release with core audio feedback system and configuration management

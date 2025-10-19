@@ -16,9 +16,14 @@ public static class AutoConfigWorkflow
         Console.WriteLine("  1. Load Monza or Paul Ricard in Assetto Corsa Competizione");
         Console.WriteLine("  2. Start a practice or hotlap session");
         Console.WriteLine("  3. Press F1 to START data collection");
-        Console.WriteLine("  4. Drive a hotlap, making sure to redline gears 1-5 under full throttle");
-        Console.WriteLine("  5. Press F1 to STOP data collection when done");
-        Console.WriteLine("  6. The app will analyze the data and show results");
+        Console.WriteLine("  4. RECOMMENDED: Do 3-4 full acceleration runs:");
+        Console.WriteLine("     - Start from slow corner or pit exit");
+        Console.WriteLine("     - Full throttle through gears 1→2→3→4→5");
+        Console.WriteLine("     - Let each gear reach high RPM before shifting");
+        Console.WriteLine("     - This captures acceleration curves for optimal shift points");
+        Console.WriteLine("  5. ALTERNATIVE: Drive 2-3 fast laps with good straight acceleration");
+        Console.WriteLine("  6. Press F1 to STOP data collection when done");
+        Console.WriteLine("  7. The app will analyze the data and show results");
         Console.WriteLine();
         Console.WriteLine("Press any key to begin...");
         Console.ReadKey();
@@ -129,10 +134,10 @@ public static class AutoConfigWorkflow
             }
 
             // Read telemetry
-            var gearRpmData = accMemory.ReadGearAndRPM();
+            var telemetryData = accMemory.ReadFullTelemetry();
             var status = accMemory.ReadStatus();
 
-            if (gearRpmData == null || status == null)
+            if (telemetryData == null || status == null)
             {
                 readFailCount++;
                 if (readFailCount > 10)
@@ -145,7 +150,7 @@ public static class AutoConfigWorkflow
             }
 
             readFailCount = 0;
-            var (currentGear, currentRPM) = gearRpmData.Value;
+            var (currentGear, currentRPM, throttle, speed) = telemetryData.Value;
             bool isDriving = status == 2; // AC_LIVE
 
             // Display status
@@ -165,20 +170,55 @@ public static class AutoConfigWorkflow
             int displayGear = currentGear - 1;
 
             // Collect data if enabled and driving (only gears 1-5)
-            if (collectingData && isDriving && currentGear >= 2 && displayGear < 6)
+            if (collectingData && isDriving && displayGear >= 1 && displayGear <= 5)
             {
-                // Estimate throttle from RPM rate (simplified - ideally read from physics memory)
-                // For now, assume full throttle if RPM is increasing quickly
-                float estimatedThrottle = 1.0f; // Simplified assumption
-                float estimatedSpeed = currentRPM / 100f; // Simplified - use actual speed if available
-
-                shiftAnalyzer.AddDataPoint(currentRPM, estimatedThrottle, estimatedSpeed, displayGear);
+                // Use actual throttle and speed from telemetry
+                // AddDataPoint will filter out invalid data (throttle < 85% or speed <= 5 km/h)
+                shiftAnalyzer.AddDataPoint(currentRPM, throttle, speed, displayGear);
             }
 
-            // Display current telemetry
-            Console.WriteLine($"Current Gear:     {displayGear}                                          ");
+            // Display current telemetry with diagnostics
+            bool isCollectingNow = (collectingData && throttle >= 0.85f && speed > 5f && displayGear >= 1 && displayGear <= 5);
+            string collectStatus;
+
+            if (!collectingData)
+            {
+                collectStatus = "Press F1 to start";
+            }
+            else if (isCollectingNow)
+            {
+                collectStatus = $"✓ Collecting data - Throttle: {throttle*100:F0}%, Speed: {speed:F1} km/h";
+            }
+            else if (displayGear < 1 || displayGear > 5)
+            {
+                collectStatus = $"Not collecting (gear {displayGear} - need gears 1-5)";
+            }
+            else if (throttle < 0.85f)
+            {
+                collectStatus = $"Need 85%+ throttle (currently {throttle*100:F0}%)";
+            }
+            else if (speed <= 5f)
+            {
+                collectStatus = $"Speed too low ({speed:F1} km/h)";
+            }
+            else
+            {
+                collectStatus = "Waiting for valid data...";
+            }
+
+            Console.WriteLine($"Current Gear:     {displayGear} (ACC Gear: {currentGear})                   ");
             Console.WriteLine($"Current RPM:      {currentRPM}                                           ");
-            Console.WriteLine($"Status:           {(collectingData ? "Collecting data..." : "Press F1 to start")}              ");
+            Console.WriteLine($"Throttle:         {throttle * 100:F1}%                                    ");
+            Console.WriteLine($"Speed:            {speed:F1} km/h                                         ");
+
+            // Show per-gear data collection progress
+            string gearDataStatus = $"G1:{shiftAnalyzer.GetDataPointCountForGear(1)} " +
+                                   $"G2:{shiftAnalyzer.GetDataPointCountForGear(2)} " +
+                                   $"G3:{shiftAnalyzer.GetDataPointCountForGear(3)} " +
+                                   $"G4:{shiftAnalyzer.GetDataPointCountForGear(4)} " +
+                                   $"G5:{shiftAnalyzer.GetDataPointCountForGear(5)}";
+            Console.WriteLine($"Data Points:      {gearDataStatus} (Total: {shiftAnalyzer.GetDataPointCount()})");
+            Console.WriteLine($"Status:           {collectStatus}                                        ");
 
             Thread.Sleep(50);
         }
@@ -232,6 +272,23 @@ public static class AutoConfigWorkflow
             {
                 var autoConfig = GearRPMConfig.FromOptimalConfig(optimalConfig);
                 configManager.SaveAutoConfig(autoConfig);
+
+                // Generate power curve graph
+                try
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Generating power curve graph...");
+                    string graphPath = PowerCurveGraphGenerator.GenerateGraph(
+                        autoConfig,
+                        configManager.CurrentVehicleName,
+                        reportsDir
+                    );
+                    Console.WriteLine($"Power curve graph saved to: {graphPath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Could not generate power curve graph: {ex.Message}");
+                }
             }
 
             return true;
