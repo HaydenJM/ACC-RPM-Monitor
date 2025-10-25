@@ -13,6 +13,11 @@ public class DynamicAudioEngine : IDisposable
     private readonly Queue<(int rpm, DateTime timestamp)> _rpmHistory = new();
     private const int RPMHistoryWindowMs = 200; // Track last 200ms of RPM changes
 
+    // Downshift mute tracking
+    private DateTime _lastDownshiftMuteTime = DateTime.MinValue;
+    private int _lastGear = 0;
+    private const int DownshiftMuteDurationMs = 200; // Mute audio for 200ms after downshift
+
     public DynamicAudioEngine()
     {
         _waveProvider = new TriangleWaveProvider();
@@ -23,7 +28,25 @@ public class DynamicAudioEngine : IDisposable
     // Updates audio with dynamic volume ramping based on proximity to threshold
     public void UpdateRPM(int currentRPM, int threshold, int currentGear)
     {
-        // No audio in 6th gear or higher
+        // Detect downshift and reset mute timer (don't add to it, just reset to 200ms)
+        if (currentGear < _lastGear)
+        {
+            _lastDownshiftMuteTime = DateTime.Now;
+        }
+        _lastGear = currentGear;
+
+        // Mute audio for 200ms after downshift
+        if ((DateTime.Now - _lastDownshiftMuteTime).TotalMilliseconds < DownshiftMuteDurationMs)
+        {
+            if (_isPlaying)
+            {
+                _waveOut.Stop();
+                _isPlaying = false;
+            }
+            return;
+        }
+
+        // No audio in 6th gear or higher (no 7th gear exists)
         if (currentGear >= 6)
         {
             if (_isPlaying)
@@ -79,7 +102,7 @@ public class DynamicAudioEngine : IDisposable
             }
             else
             {
-                // Below threshold - ramp volume from 0 to 1
+                // Below threshold - ramp volume from 0 to 1 over the warning distance
                 volumePercent = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
                 volumePercent = Math.Max(0.0f, Math.Min(1.0f, volumePercent)); // Clamp to 0-1
             }

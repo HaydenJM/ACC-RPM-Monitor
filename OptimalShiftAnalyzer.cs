@@ -13,9 +13,10 @@ public class OptimalShiftAnalyzer
     public void AddDataPoint(int rpm, float throttle, float speed, int gear)
     {
         // Filter out invalid data: ignore if speed is very low or throttle is too low
-        // Speed > 5 km/h filters out standing starts and pit limiter
+        // Speed > 5 km/h filters out standing starts
+        // Speed 49-51 km/h filters out pit limiter activation
         // Throttle >= 85% ensures we're accelerating hard
-        if (speed <= 5f || throttle < FullThrottleThreshold)
+        if (speed <= 5f || (speed >= 49f && speed <= 51f) || throttle < FullThrottleThreshold)
             return;
 
         _dataPoints.Add(new TelemetryDataPoint
@@ -226,26 +227,12 @@ public class OptimalShiftAnalyzer
 
         // Check acceleration behavior in top 20% of RPM range
         var topRPMThreshold = maxRPM - (rpmRange * 0.2f);
-        var topRPMAccels = currentGearAccel.Where(kvp => kvp.Key >= topRPMThreshold).ToList();
-        var midRPMThreshold = minRPM + (rpmRange * 0.5f);
-        var midRPMAccels = currentGearAccel.Where(kvp => kvp.Key <= midRPMThreshold).ToList();
+        // Optimized for SHORT-TERM acceleration: shift as soon as next gear becomes meaningfully better
+        // Lower threshold = earlier shifts = maximize instantaneous acceleration
+        const float minimumAdvantageThreshold = 0.03f; // 3% advantage is sufficient for short-term optimization
 
-        // GT3-optimized thresholds: Default to 10% for high-revving race cars
-        float minimumAdvantageThreshold = 0.10f; // Default 10% for GT3 cars
-        if (topRPMAccels.Any() && midRPMAccels.Any())
-        {
-            float avgTopAccel = topRPMAccels.Average(kvp => kvp.Value);
-            float avgMidAccel = midRPMAccels.Average(kvp => kvp.Value);
-
-            // Only use lower 5% threshold if power clearly drops off at high RPM
-            if (avgTopAccel < avgMidAccel * 0.70f)
-            {
-                // Power drops significantly at high RPM - can shift earlier
-                minimumAdvantageThreshold = 0.05f; // 5% advantage sufficient
-            }
-        }
-
-        // For each RPM in current gear, check if shifting would be advantageous
+        // Find the FIRST RPM where next gear provides meaningful advantage
+        // This prioritizes short-term acceleration over holding gears to redline
         foreach (var currentRPM in currentGearAccel.Keys.OrderBy(k => k))
         {
             float currentAcceleration = currentGearAccel[currentRPM];
@@ -261,8 +248,8 @@ public class OptimalShiftAnalyzer
             if (closestNextGearRPM == 0)
                 continue;
 
-            // Only consider if we're within reasonable range (±200 RPM)
-            if (Math.Abs(closestNextGearRPM - nextGearRPM) > 200)
+            // Only consider if we're within reasonable range (±75 RPM)
+            if (Math.Abs(closestNextGearRPM - nextGearRPM) > 75)
                 continue;
 
             float nextGearAcceleration = nextGearAccel[closestNextGearRPM];
@@ -270,8 +257,8 @@ public class OptimalShiftAnalyzer
             // Calculate acceleration advantage as a percentage
             float advantageRatio = (nextGearAcceleration - currentAcceleration) / currentAcceleration;
 
-            // Find the point where next gear becomes SIGNIFICANTLY better (not just barely better)
-            // Use adaptive threshold based on car's power curve characteristics
+            // Find the first point where next gear becomes meaningfully better
+            // This maximizes short-term acceleration by shifting as soon as it's beneficial
             if (advantageRatio > minimumAdvantageThreshold && advantageRatio > bestAdvantageMargin)
             {
                 bestAdvantageMargin = advantageRatio;
@@ -411,7 +398,7 @@ public class OptimalShiftAnalyzer
     public int GetDataPointCountForGear(int gear) =>
         _dataPoints.Count(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold);
 
-    // Generates a detailed data collection report for gears 1-5
+    // Generates a detailed data collection report for gears 1-6
     public DataCollectionReport GenerateDetailedReport(string vehicleName)
     {
         var report = new DataCollectionReport
@@ -425,8 +412,8 @@ public class OptimalShiftAnalyzer
         var gearAnalyses = new List<DataCollectionReport.GearAnalysis>();
         int successfulGears = 0;
 
-        // Analyze gears 1-5 specifically
-        for (int gear = 1; gear <= 5; gear++)
+        // Analyze gears 1-6 specifically
+        for (int gear = 1; gear <= 6; gear++)
         {
             var analysis = AnalyzeGear(gear);
             gearAnalyses.Add(analysis);
@@ -438,18 +425,18 @@ public class OptimalShiftAnalyzer
 
         report.GearAnalyses = gearAnalyses;
 
-        // Determine overall success: need all gears 1-5 with sufficient confidence
-        report.OverallSuccess = successfulGears == 5;
+        // Determine overall success: need all gears 1-6 with sufficient confidence
+        report.OverallSuccess = successfulGears == 6;
 
         // Generate summary
         if (report.OverallSuccess)
         {
-            report.SessionSummary = $"SUCCESS: All 5 gears have optimal shift points detected with sufficient confidence.";
+            report.SessionSummary = $"SUCCESS: All 6 gears have optimal shift points detected with sufficient confidence.";
         }
         else
         {
-            int failedGears = 5 - successfulGears;
-            report.SessionSummary = $"INCOMPLETE: {successfulGears}/5 gears successfully analyzed. {failedGears} gear(s) need more data.";
+            int failedGears = 6 - successfulGears;
+            report.SessionSummary = $"INCOMPLETE: {successfulGears}/6 gears successfully analyzed. {failedGears} gear(s) need more data.";
         }
 
         // Generate recommendations

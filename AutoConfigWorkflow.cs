@@ -42,6 +42,7 @@ public static class AutoConfigWorkflow
         bool collectingData = false;
         bool wasConnected = false;
         int readFailCount = 0;
+        bool continueSession = false; // Track if we're continuing after insufficient data
 
         Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
@@ -63,7 +64,14 @@ public static class AutoConfigWorkflow
                     {
                         // Start collection
                         collectingData = true;
-                        shiftAnalyzer.Clear(); // Clear any previous data
+
+                        // Only clear data if starting fresh (not continuing from previous attempt)
+                        if (!continueSession)
+                        {
+                            shiftAnalyzer.Clear();
+                        }
+                        continueSession = false; // Reset flag after checking
+
                         Console.SetCursorPosition(0, 7);
                         Console.WriteLine("Data Collection: ACTIVE - Drive your hotlap now!                    ");
                     }
@@ -92,6 +100,7 @@ public static class AutoConfigWorkflow
                             if (response == ConsoleKey.Y)
                             {
                                 // Continue collecting - don't clear existing data
+                                continueSession = true; // Set flag to preserve data on next F1 press
                                 Console.Clear();
                                 Console.WriteLine("=".PadRight(80, '='));
                                 Console.WriteLine("AUTO CONFIGURATION - DATA COLLECTION (CONTINUED)");
@@ -99,6 +108,7 @@ public static class AutoConfigWorkflow
                                 Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
                                 Console.WriteLine();
                                 Console.WriteLine("Press F1 to START/STOP collection | Press ESC to abort\n");
+                                Console.WriteLine($"Existing data preserved: {shiftAnalyzer.GetDataPointCount()} points");
                                 Console.WriteLine("Waiting for ACC...");
                             }
                             else
@@ -169,8 +179,8 @@ public static class AutoConfigWorkflow
 
             int displayGear = currentGear - 1;
 
-            // Collect data if enabled and driving (only gears 1-5)
-            if (collectingData && isDriving && displayGear >= 1 && displayGear <= 5)
+            // Collect data if enabled and driving (only gears 1-6)
+            if (collectingData && isDriving && displayGear >= 1 && displayGear <= 6)
             {
                 // Use actual throttle and speed from telemetry
                 // AddDataPoint will filter out invalid data (throttle < 85% or speed <= 5 km/h)
@@ -178,7 +188,7 @@ public static class AutoConfigWorkflow
             }
 
             // Display current telemetry with diagnostics
-            bool isCollectingNow = (collectingData && throttle >= 0.85f && speed > 5f && displayGear >= 1 && displayGear <= 5);
+            bool isCollectingNow = (collectingData && throttle >= 0.85f && speed > 5f && displayGear >= 1 && displayGear <= 6);
             string collectStatus;
 
             if (!collectingData)
@@ -189,9 +199,9 @@ public static class AutoConfigWorkflow
             {
                 collectStatus = $"✓ Collecting data - Throttle: {throttle*100:F0}%, Speed: {speed:F1} km/h";
             }
-            else if (displayGear < 1 || displayGear > 5)
+            else if (displayGear < 1 || displayGear > 6)
             {
-                collectStatus = $"Not collecting (gear {displayGear} - need gears 1-5)";
+                collectStatus = $"Not collecting (gear {displayGear} - need gears 1-6)";
             }
             else if (throttle < 0.85f)
             {
@@ -206,7 +216,7 @@ public static class AutoConfigWorkflow
                 collectStatus = "Waiting for valid data...";
             }
 
-            Console.WriteLine($"Current Gear:     {displayGear} (ACC Gear: {currentGear})                   ");
+            Console.WriteLine($"Current Gear:     {displayGear}                                          ");
             Console.WriteLine($"Current RPM:      {currentRPM}                                           ");
             Console.WriteLine($"Throttle:         {throttle * 100:F1}%                                    ");
             Console.WriteLine($"Speed:            {speed:F1} km/h                                         ");
@@ -216,7 +226,8 @@ public static class AutoConfigWorkflow
                                    $"G2:{shiftAnalyzer.GetDataPointCountForGear(2)} " +
                                    $"G3:{shiftAnalyzer.GetDataPointCountForGear(3)} " +
                                    $"G4:{shiftAnalyzer.GetDataPointCountForGear(4)} " +
-                                   $"G5:{shiftAnalyzer.GetDataPointCountForGear(5)}";
+                                   $"G5:{shiftAnalyzer.GetDataPointCountForGear(5)} " +
+                                   $"G6:{shiftAnalyzer.GetDataPointCountForGear(6)}";
             Console.WriteLine($"Data Points:      {gearDataStatus} (Total: {shiftAnalyzer.GetDataPointCount()})");
             Console.WriteLine($"Status:           {collectStatus}                                        ");
 

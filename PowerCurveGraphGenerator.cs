@@ -32,18 +32,19 @@ public static class PowerCurveGraphGenerator
             Colors.Orange,
             Colors.Yellow,
             Colors.Green,
-            Colors.Blue
+            Colors.Blue,
+            Colors.Purple
         };
 
-        // Only plot gears 1-5
+        // Only plot gears 1-6
         var gearsToPlot = config.AccelerationCurves
-            .Where(kvp => kvp.Key >= 1 && kvp.Key <= 5)
+            .Where(kvp => kvp.Key >= 1 && kvp.Key <= 6)
             .OrderBy(kvp => kvp.Key)
             .ToList();
 
         if (gearsToPlot.Count == 0)
         {
-            throw new InvalidOperationException("No acceleration data available for gears 1-5");
+            throw new InvalidOperationException("No acceleration data available for gears 1-6");
         }
 
         // Plot each gear's acceleration curve
@@ -87,7 +88,7 @@ public static class PowerCurveGraphGenerator
         if (config.GearRatios.Count > 0)
         {
             var ratioText = "Gear Ratios:\n";
-            foreach (var kvp in config.GearRatios.Where(g => g.Key >= 1 && g.Key <= 5).OrderBy(x => x.Key))
+            foreach (var kvp in config.GearRatios.Where(g => g.Key >= 1 && g.Key <= 6).OrderBy(x => x.Key))
             {
                 ratioText += $"  {kvp.Key}→{kvp.Key + 1}: {kvp.Value:F3}\n";
             }
@@ -141,12 +142,13 @@ public static class PowerCurveGraphGenerator
             Colors.Orange,
             Colors.Yellow,
             Colors.Green,
-            Colors.Blue
+            Colors.Blue,
+            Colors.Purple
         };
 
-        // Only plot gears 1-5
+        // Only plot gears 1-6
         var gearsToPlot = accelerationCurves
-            .Where(kvp => kvp.Key >= 1 && kvp.Key <= 5)
+            .Where(kvp => kvp.Key >= 1 && kvp.Key <= 6)
             .OrderBy(kvp => kvp.Key)
             .ToList();
 
@@ -174,7 +176,7 @@ public static class PowerCurveGraphGenerator
         if (gearRatios.Count > 0)
         {
             var ratioText = "Gear Ratios:\n";
-            foreach (var kvp in gearRatios.Where(g => g.Key >= 1 && g.Key <= 5).OrderBy(x => x.Key))
+            foreach (var kvp in gearRatios.Where(g => g.Key >= 1 && g.Key <= 6).OrderBy(x => x.Key))
             {
                 ratioText += $"  {kvp.Key}→{kvp.Key + 1}: {kvp.Value:F3}\n";
             }
