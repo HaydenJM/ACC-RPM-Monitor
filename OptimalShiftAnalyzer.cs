@@ -9,6 +9,9 @@ public class OptimalShiftAnalyzer
     private const float MinConfidenceThreshold = 0.50f; // Minimum acceptable confidence
     private DateTime _sessionStart = DateTime.Now;
 
+    private int _lastRPM = 0;
+    private DateTime _lastDataPointTime = DateTime.MinValue;
+
     // Adds a telemetry data point during data collection
     public void AddDataPoint(int rpm, float throttle, float speed, int gear)
     {
@@ -17,7 +20,32 @@ public class OptimalShiftAnalyzer
         // Speed 49-51 km/h filters out pit limiter activation
         // Throttle >= 85% ensures we're accelerating hard
         if (speed <= 5f || (speed >= 49f && speed <= 51f) || throttle < FullThrottleThreshold)
+        {
+            _lastRPM = rpm;
+            _lastDataPointTime = DateTime.Now;
             return;
+        }
+
+        // ADDITIONAL FILTER: Only collect data when RPMs are actually RISING
+        // This prevents collecting corner data where throttle is high but you're maintaining RPM
+        var now = DateTime.Now;
+        if (_lastRPM != 0 && _lastDataPointTime != DateTime.MinValue)
+        {
+            var timeDelta = (now - _lastDataPointTime).TotalSeconds;
+            if (timeDelta > 0.01 && timeDelta < 1.0) // Valid time window
+            {
+                var rpmRate = (rpm - _lastRPM) / timeDelta;
+
+                // Only collect data when RPMs are rising at least 100 RPM/sec
+                // This filters out corner maintenance throttle
+                if (rpmRate < 100)
+                {
+                    _lastRPM = rpm;
+                    _lastDataPointTime = now;
+                    return;
+                }
+            }
+        }
 
         _dataPoints.Add(new TelemetryDataPoint
         {
@@ -25,8 +53,11 @@ public class OptimalShiftAnalyzer
             Throttle = throttle,
             Speed = speed,
             Gear = gear,
-            Timestamp = DateTime.Now
+            Timestamp = now
         });
+
+        _lastRPM = rpm;
+        _lastDataPointTime = now;
     }
 
     // Finds the optimal upshift RPM for a specific gear based on acceleration optimization

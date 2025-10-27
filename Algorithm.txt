@@ -1,0 +1,339 @@
+=================================================================================
+ACCELERATION-BASED OPTIMAL SHIFT POINT ALGORITHM
+=================================================================================
+
+OBJECTIVE:
+Find the RPM at which shifting to the next gear provides better acceleration
+than staying in the current gear, optimizing lap times by maximizing
+acceleration throughout the power band.
+
+=================================================================================
+THE PROBLEM WITH THE OLD ALGORITHM:
+=================================================================================
+
+The previous algorithm simply found the maximum speed achieved in each gear and
+set the shift point at 99% of that max speed. This approach:
+
+- Ignored acceleration rates entirely
+- Would tell you to shift at redline even if shifting earlier would give
+  better acceleration
+- Did not account for the power curves and gear ratios
+- Could result in slower lap times by staying in a gear too long
+
+=================================================================================
+THE NEW ALGORITHM:
+=================================================================================
+
+STEP 1: Calculate Acceleration Curves
+--------------------------------------
+For both the current gear and next gear:
+
+1. Sort all telemetry data points chronologically
+2. Calculate acceleration between consecutive points:
+   - acceleration = (speed_current - speed_previous) / time_delta
+3. Group acceleration values by RPM (in 100 RPM buckets)
+4. Average the acceleration values in each bucket
+
+This gives us an acceleration curve: how fast the car accelerates at each RPM.
+
+STEP 2: Estimate Gear Ratio
+----------------------------
+To predict what happens after a shift, we need to know the gear ratio:
+
+1. Find the overlapping speed range between current gear and next gear
+2. Calculate RPM/Speed ratio for both gears in this overlap region
+3. Gear ratio = (Current Gear RPM/Speed) / (Next Gear RPM/Speed)
+
+This tells us how much RPM drops when shifting.
+
+STEP 3: Find the Crossover Point
+---------------------------------
+For each RPM level in the current gear:
+
+1. Get the acceleration at this RPM in current gear
+2. Calculate what RPM we'd land at in next gear if we shifted now:
+   - next_gear_rpm = current_rpm / gear_ratio
+3. Look up the acceleration at that RPM in next gear
+4. Calculate the advantage: next_gear_accel - current_gear_accel
+5. Track the RPM where this advantage is highest and positive
+
+The optimal shift point is where shifting gives the BEST acceleration advantage.
+
+STEP 4: Fallback Strategy
+--------------------------
+If we don't have enough data for the next gear or the acceleration method fails:
+
+- Fall back to the old max-speed method (99% of max speed)
+- This ensures we always have a shift point even with incomplete data
+
+=================================================================================
+WHY THIS WORKS:
+=================================================================================
+
+In racing, the goal is to maximize acceleration to minimize lap times. By
+finding the exact point where the next gear accelerates faster than the current
+gear, we ensure the driver shifts at the optimal moment for maximum performance.
+
+Example scenario:
+- In 2nd gear at 6800 RPM: accelerating at 2.5 m/s²
+- If we shift to 3rd, we'd drop to 5200 RPM: accelerating at 3.1 m/s²
+- Shifting NOW gives +0.6 m/s² advantage = OPTIMAL SHIFT POINT
+
+- In 2nd gear at 6500 RPM: accelerating at 2.8 m/s²
+- If we shift to 3rd, we'd drop to 4900 RPM: accelerating at 2.4 m/s²
+- Staying in gear gives -0.4 m/s² = TOO EARLY, DON'T SHIFT YET
+
+=================================================================================
+IMPLEMENTATION DETAILS:
+=================================================================================
+
+Data Requirements:
+- Minimum 30 full-throttle data points per gear (reduced from 50)
+- At least 3 samples per 100 RPM bucket for reliability
+- Consecutive data points within 10ms to 1 second apart
+- Speed must be above 5 km/h (filters out standing starts)
+- Speed must NOT be 49-51 km/h (filters out pit limiter activation)
+
+Parameters:
+- RPM Bucket Size: 100 RPM (groups similar RPM levels together)
+- Min Time Delta: 0.01 seconds (filters out noise)
+- Max Time Delta: 1.0 seconds (filters out different laps)
+- RPM Match Tolerance: ±75 RPM (acceptable range for gear ratio lookup)
+- Full Throttle Threshold: 85% (reduced from 95% for more realistic data)
+- Pit Limiter Filter: 49-51 km/h (excludes pit limiter activation data)
+
+=================================================================================
+BENEFITS:
+=================================================================================
+
+1. Scientifically accurate: Based on actual physics (F = ma)
+2. Vehicle-specific: Adapts to each car's unique power curve
+3. Track-independent: Works on any track configuration
+4. Self-optimizing: More data = better shift points
+5. Robust: Falls back gracefully when data is insufficient
+
+=================================================================================
+NEW AUTO CONFIGURATION INSTRUCTIONS FOR PLAYERS
+=================================================================================
+
+To get the best data for the acceleration-based algorithm, you need to collect
+data that shows how the car accelerates through MULTIPLE gears, not just redline
+in each gear individually.
+
+OLD INSTRUCTIONS (LESS OPTIMAL):
+- Just redline each gear 1-5 separately
+- Only captures maximum RPM, not acceleration curves
+- No overlap between gears to calculate gear ratios
+
+NEW INSTRUCTIONS (OPTIMAL):
+================================
+
+TRACK SELECTION:
+- Use Monza or Paul Ricard (long straights for sustained acceleration)
+- Practice or hotlap session recommended
+
+DATA COLLECTION TECHNIQUE:
+--------------------------
+
+Method 1: FULL ACCELERATION RUNS (RECOMMENDED)
+------------------------------------------------
+1. Start from a slow corner or pit exit
+2. Go to full throttle in 1st gear
+3. Let the car accelerate naturally through ALL gears (1st → 2nd → 3rd → 4th → 5th)
+4. DO NOT shift manually - let the car hit the rev limiter briefly in each gear
+   before you shift, or shift at redline
+5. Stay at full throttle throughout the entire run
+6. Repeat this 3-4 times to get multiple acceleration runs
+
+WHY THIS IS BETTER:
+- Captures acceleration curves at every RPM level in each gear
+- Creates overlapping speed ranges between consecutive gears
+- Allows the algorithm to calculate gear ratios accurately
+- Shows how fast you're accelerating at different RPM levels
+- Provides the crossover points where next gear becomes faster
+
+Method 2: INDIVIDUAL GEAR SWEEPS (ALTERNATIVE)
+------------------------------------------------
+If you can't do full runs, do this for EACH gear from 1-5:
+
+1. Get into the target gear at low RPM (around 3000-4000 RPM)
+2. Go to full throttle
+3. Hold full throttle until you hit the rev limiter
+4. Repeat 2-3 times per gear
+
+IMPORTANT: You must also do overlap runs:
+- Accelerate in gear N until 80% of redline
+- Shift to gear N+1 and continue accelerating
+- This creates the overlap data needed for gear ratio calculation
+
+Method 3: RACE PACE (MINIMUM VIABLE)
+--------------------------------------
+Just drive fast laps normally:
+- Focus on long straights where you're at full throttle
+- Shift when it feels natural (the algorithm will find the better point)
+- Make sure you reach high RPM (7000+) in gears 1-5 at some point
+- 2-3 clean laps should be sufficient
+
+CRITICAL REQUIREMENTS:
+----------------------
+✓ Full throttle (>85%) during all data collection
+✓ Cover the full RPM range in each gear (low RPM → high RPM)
+✓ Create overlap between consecutive gears (shift at different points)
+✓ Stay smooth - no throttle blips or partial throttle
+✓ At least 30 data points per gear (more is better)
+✓ Avoid speeds of 49-51 km/h (pit limiter zone)
+
+WHAT TO AVOID:
+--------------
+✗ Partial throttle (algorithm ignores data below 85% throttle)
+✗ Shifting too early every time (no high-RPM data)
+✗ Only hitting redline briefly (need sustained high-RPM acceleration)
+✗ Braking or coasting during collection
+✗ Collecting data in only one gear without overlap to next gear
+✗ Using pit limiter during data collection (49-51 km/h is filtered out)
+
+DATA COLLECTION WORKFLOW:
+-------------------------
+1. Press F1 to START collection
+2. Drive 3-4 full acceleration runs (pit exit to end of straight)
+   OR
+   Drive 2-3 fast laps with good straight-line acceleration
+3. Press F1 to STOP collection
+4. Review the results
+5. If any gear fails, collect more data focusing on that gear
+
+The algorithm will automatically:
+- Calculate acceleration at each RPM level
+- Determine gear ratios from overlapping data
+- Find the crossover point where shifting is optimal
+- Fall back to max-speed method if acceleration data is insufficient
+
+=================================================================================
+DYNAMIC AUDIO SHIFT ALERT SYSTEM
+=================================================================================
+
+The shift alert audio system uses a sophisticated dynamic warning system that
+adapts to how quickly the RPM is climbing.
+
+HOW IT WORKS:
+-------------
+
+1. RPM RATE TRACKING:
+   - Monitors RPM changes over the last 200ms
+   - Calculates RPM rate of change (RPM per second)
+   - Uses this rate to predict how soon you'll reach the shift point
+
+2. DYNAMIC WARNING DISTANCE:
+   Based on RPM acceleration rate, the audio starts at different distances:
+
+   RPM Rate (RPM/sec)    Warning Distance    Explanation
+   ------------------    ----------------    -----------
+   > 1500                200 RPM             Very fast climb - warn early
+   > 1000                150 RPM             Fast climb - good warning time
+   > 600                 120 RPM             Moderate-fast - standard warning
+   > 300                 100 RPM             Moderate climb
+   > 150                 80 RPM              Slow-moderate climb
+   > 50                  50 RPM              Slow climb - warn close
+   ≤ 50                  30 RPM              Very slow/stable - minimal warning
+
+3. VOLUME RAMPING:
+   - Audio starts quietly at the warning distance
+   - Volume gradually increases as RPM approaches threshold
+   - Reaches FULL VOLUME at (threshold - 60 RPM)
+   - Stays at full volume from -60 RPM until you shift
+   - This gives you time to react at the optimal shift point
+
+4. FREQUENCY PER GEAR:
+   - Each gear has a unique tone to help identify which gear you're in
+   - Gear 1: 500 Hz
+   - Gear 2: 600 Hz
+   - Gear 3: 700 Hz
+   - Gear 4: 800 Hz
+   - Gear 5: 900 Hz
+   - Gear 6+: No audio (beeping disabled in 6th gear and higher)
+
+5. MINIMUM RPM THRESHOLD:
+   - Audio never plays below 6000 RPM
+   - Prevents false alerts during low-RPM driving
+
+EXAMPLE SCENARIOS:
+------------------
+
+Scenario A: FAST ACCELERATION (Hard launch from corner)
+- Current RPM: 7200, Threshold: 7500
+- RPM Rate: 1800 RPM/sec (climbing fast)
+- Warning Distance: 200 RPM
+- Audio starts at: 7300 RPM (200 RPM before threshold)
+- Full volume at: 7440 RPM (60 RPM before threshold)
+- Result: Early warning gives you time to prepare for shift
+
+Scenario B: MODERATE ACCELERATION (Mid-corner exit)
+- Current RPM: 7300, Threshold: 7500
+- RPM Rate: 400 RPM/sec (moderate climb)
+- Warning Distance: 100 RPM
+- Audio starts at: 7400 RPM (100 RPM before threshold)
+- Full volume at: 7440 RPM (60 RPM before threshold)
+- Result: Appropriate warning without being too early
+
+Scenario C: SLOW ACCELERATION (High gear, low throttle)
+- Current RPM: 7450, Threshold: 7500
+- RPM Rate: 80 RPM/sec (slow climb)
+- Warning Distance: 50 RPM
+- Audio starts at: 7450 RPM (50 RPM before threshold)
+- Full volume at: 7440 RPM (already reached)
+- Result: Immediate full volume warning as you're close to shift point
+
+VISUAL REPRESENTATION:
+----------------------
+
+Fast Acceleration (200 RPM warning):
+RPM:     7300    7350    7400    7440    7500    7550
+Audio:   |-------|-------|-------|=======|=======|
+         Quiet   Louder  Loud    FULL    FULL    SHIFT!
+         ^                       ^       ^
+         Start                   60RPM   Threshold
+                                before
+
+Moderate Acceleration (100 RPM warning):
+RPM:     7400    7425    7440    7500    7550
+Audio:   |-------|-------|=======|=======|
+         Quiet   Loud    FULL    FULL    SHIFT!
+         ^               ^       ^
+         Start           60RPM   Threshold
+                        before
+
+=================================================================================
+EXAMPLE IDEAL DATA COLLECTION SESSION:
+=================================================================================
+
+Monza - Turn 11 (Parabolica) Exit → Main Straight:
+
+Run 1:
+- Exit Parabolica in 2nd gear at ~4500 RPM
+- Full throttle
+- Let car accelerate: 2nd → 3rd → 4th → 5th
+- Each gear hits ~7800 RPM before shift
+- Brake for Turn 1
+
+Run 2:
+- Exit Parabolica in 2nd gear at ~4000 RPM
+- Full throttle
+- Accelerate through all gears again
+- Shift points slightly different (natural variation is good!)
+- Brake for Turn 1
+
+Run 3:
+- Repeat
+
+Run 4 (Optional - for extra data quality):
+- Start in 1st gear from slow speed
+- Full acceleration run through all 5 gears
+- This captures low-speed 1st gear data
+
+RESULT:
+- High-quality acceleration curves for all gears 1-5
+- Perfect overlap data for calculating gear ratios
+- Multiple samples at each RPM level for accuracy
+- Algorithm can now find the exact optimal shift points!
+
+=================================================================================

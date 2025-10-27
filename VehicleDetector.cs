@@ -32,13 +32,24 @@ public class VehicleDetector : IDisposable
 
         try
         {
-            using var accessor = _staticMMF.CreateViewAccessor(0, Marshal.SizeOf<ACCStatic>(), MemoryMappedFileAccess.Read);
+            using var accessor = _staticMMF.CreateViewAccessor(0, 2048, MemoryMappedFileAccess.Read);
 
-            ACCStatic staticData;
-            accessor.Read(0, out staticData);
+            // Read car model directly from known offset
+            // ACC Static Memory Structure:
+            // SMVersion (wchar_t[15]) = 30 bytes
+            // ACVersion (wchar_t[15]) = 30 bytes
+            // NumberOfSessions (int) = 4 bytes
+            // NumCars (int) = 4 bytes
+            // CarModel (wchar_t[33]) = 66 bytes at offset 68
 
-            // Clean up the car model string (remove null characters)
-            string carModel = staticData.CarModel?.Trim('\0') ?? "unknown";
+            byte[] carModelBytes = new byte[66]; // wchar_t[33] = 33 * 2 bytes
+            accessor.ReadArray(68, carModelBytes, 0, 66);
+
+            // Convert from Unicode (wide char)
+            string carModel = Encoding.Unicode.GetString(carModelBytes).Trim('\0');
+
+            if (string.IsNullOrWhiteSpace(carModel))
+                return null;
 
             // Sanitize for use as filename
             foreach (char c in Path.GetInvalidFileNameChars())
@@ -46,10 +57,11 @@ public class VehicleDetector : IDisposable
                 carModel = carModel.Replace(c, '_');
             }
 
-            return string.IsNullOrWhiteSpace(carModel) ? "unknown" : carModel;
+            return carModel;
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"Vehicle detection error: {ex.Message}");
             return null;
         }
     }
@@ -59,39 +71,4 @@ public class VehicleDetector : IDisposable
         _staticMMF?.Dispose();
         _staticMMF = null;
     }
-}
-
-// ACC Static shared memory structure (simplified - only car model)
-[StructLayout(LayoutKind.Sequential, Pack = 4, CharSet = CharSet.Unicode)]
-public struct ACCStatic
-{
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 15)]
-    public string SMVersion;
-
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 15)]
-    public string ACVersion;
-
-    public int NumberOfSessions;
-    public int NumCars;
-
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 33)]
-    public string CarModel;
-
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 33)]
-    public string Track;
-
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 33)]
-    public string PlayerName;
-
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 33)]
-    public string PlayerSurname;
-
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 33)]
-    public string PlayerNick;
-
-    public int SectorCount;
-
-    // Padding to match actual structure size
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 100)]
-    public float[] _padding;
 }

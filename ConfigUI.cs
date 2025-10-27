@@ -53,6 +53,19 @@ public static class ConfigUI
             Console.Clear();
             Console.WriteLine("=== ACC RPM Monitor - Vehicle Selection ===\n");
 
+            // Try to detect current vehicle from ACC
+            using var vehicleDetector = new VehicleDetector();
+            string? detectedVehicle = null;
+            if (vehicleDetector.Connect())
+            {
+                detectedVehicle = vehicleDetector.GetCarModel();
+                if (!string.IsNullOrEmpty(detectedVehicle))
+                {
+                    Console.WriteLine($"Detected from ACC: {detectedVehicle}");
+                    Console.WriteLine();
+                }
+            }
+
             var vehicles = configManager.GetAvailableVehicles();
 
             if (vehicles.Count == 0)
@@ -65,11 +78,13 @@ public static class ConfigUI
                 for (int i = 0; i < vehicles.Count; i++)
                 {
                     string marker = vehicles[i] == configManager.CurrentVehicleName ? " (current)" : "";
-                    Console.WriteLine($"  [{i + 1}] {vehicles[i]}{marker}");
+                    string detectedMarker = vehicles[i] == detectedVehicle ? " [detected]" : "";
+                    Console.WriteLine($"  [{i + 1}] {vehicles[i]}{marker}{detectedMarker}");
                 }
                 Console.WriteLine();
             }
 
+            Console.WriteLine($"  [A] Auto-select detected vehicle");
             Console.WriteLine($"  [N] Create New Vehicle Configuration");
             if (vehicles.Count > 0)
             {
@@ -85,6 +100,14 @@ public static class ConfigUI
 
             if (input == "C")
             {
+                return;
+            }
+            else if (input == "A" && !string.IsNullOrEmpty(detectedVehicle))
+            {
+                // Auto-select detected vehicle
+                configManager.SetVehicle(detectedVehicle);
+                Console.WriteLine($"\nSwitched to detected vehicle: {detectedVehicle}");
+                Thread.Sleep(1000);
                 return;
             }
             else if (input == "N")

@@ -2,7 +2,7 @@ using NAudio.Wave;
 
 namespace ACCRPMMonitor;
 
-// Audio engine with dynamic warning timing based on RPM rate of change
+// Audio engine with mode-specific feedback strategies
 public class DynamicAudioEngine : IDisposable
 {
     private readonly WaveOutEvent _waveOut;
@@ -18,6 +18,16 @@ public class DynamicAudioEngine : IDisposable
     private int _lastGear = 0;
     private const int DownshiftMuteDurationMs = 200; // Mute audio for 200ms after downshift
 
+    // Audio mode
+    public enum AudioMode
+    {
+        Standard,           // Progressive beeping (slow → fast → solid)
+        PerformanceLearning // Pitch-based guidance (low/high pitch for shift recommendation)
+    }
+
+    private AudioMode _currentMode = AudioMode.Standard;
+    private int _recommendedShiftRPM = 0; // Used in Performance Learning mode
+
     public DynamicAudioEngine()
     {
         _waveProvider = new TriangleWaveProvider();
@@ -25,10 +35,28 @@ public class DynamicAudioEngine : IDisposable
         _waveOut.Init(_waveProvider);
     }
 
-    // Updates audio with dynamic volume ramping based on proximity to threshold
+    /// <summary>
+    /// Sets the audio mode for different monitoring modes.
+    /// </summary>
+    public void SetMode(AudioMode mode)
+    {
+        _currentMode = mode;
+    }
+
+    /// <summary>
+    /// Sets the recommended shift RPM for Performance Learning mode.
+    /// </summary>
+    public void SetRecommendedShiftRPM(int rpm)
+    {
+        _recommendedShiftRPM = rpm;
+    }
+
+    /// <summary>
+    /// Updates audio based on current mode.
+    /// </summary>
     public void UpdateRPM(int currentRPM, int threshold, int currentGear)
     {
-        // Detect downshift and reset mute timer (don't add to it, just reset to 200ms)
+        // Detect downshift and reset mute timer
         if (currentGear < _lastGear)
         {
             _lastDownshiftMuteTime = DateTime.Now;
@@ -38,33 +66,21 @@ public class DynamicAudioEngine : IDisposable
         // Mute audio for 200ms after downshift
         if ((DateTime.Now - _lastDownshiftMuteTime).TotalMilliseconds < DownshiftMuteDurationMs)
         {
-            if (_isPlaying)
-            {
-                _waveOut.Stop();
-                _isPlaying = false;
-            }
+            Stop();
             return;
         }
 
-        // No audio in 6th gear or higher (no 7th gear exists)
+        // No audio in 6th gear or higher
         if (currentGear >= 6)
         {
-            if (_isPlaying)
-            {
-                _waveOut.Stop();
-                _isPlaying = false;
-            }
+            Stop();
             return;
         }
 
         // Hard-coded minimum RPM threshold - never play audio below 6000 RPM
         if (currentRPM < 6000)
         {
-            if (_isPlaying)
-            {
-                _waveOut.Stop();
-                _isPlaying = false;
-            }
+            Stop();
             return;
         }
 
@@ -78,38 +94,57 @@ public class DynamicAudioEngine : IDisposable
             _rpmHistory.Dequeue();
         }
 
-        // Calculate RPM rate of change (RPM per second)
+        // Route to appropriate audio mode
+        if (_currentMode == AudioMode.PerformanceLearning)
+        {
+            UpdatePerformanceLearningAudio(currentRPM, threshold, currentGear);
+        }
+        else
+        {
+            UpdateStandardAudio(currentRPM, threshold, currentGear);
+        }
+    }
+
+    /// <summary>
+    /// Standard/Adaptive mode: Progressive beeping that accelerates as RPM approaches threshold.
+    /// Slow beeps → fast beeps → solid tone at threshold.
+    /// </summary>
+    private void UpdateStandardAudio(int currentRPM, int threshold, int currentGear)
+    {
+        // Calculate RPM rate and dynamic warning distance
         float rpmRate = CalculateRPMRate();
-
-        // Dynamic warning distance based on RPM acceleration
-        int warningDistance = CalculateDynamicBeepDistance(rpmRate);
-
+        int warningDistance = CalculateDynamicWarningDistance(rpmRate);
         int rpmFromThreshold = currentRPM - threshold;
 
-        // Each gear gets its own frequency, starting at 500Hz
+        // Each gear gets its own frequency
         float frequency = 500f + (currentGear - 1) * 100f;
 
-        // Start playing steady tone when approaching threshold
+        // Only play when within warning distance
         if (rpmFromThreshold >= -warningDistance)
         {
-            // Calculate volume based on proximity to threshold (0.0 to 1.0)
-            // Volume increases from quiet to full as we approach threshold
-            float volumePercent;
+            _waveProvider.SetFrequency(frequency);
+
+            // Progressive beeping based on proximity to threshold
             if (rpmFromThreshold >= 0)
             {
-                // At or above threshold - full volume
-                volumePercent = 1.0f;
+                // At or above threshold - solid tone
+                _waveProvider.SetBeeping(false, 0, 0);
             }
             else
             {
-                // Below threshold - ramp volume from 0 to 1 over the warning distance
-                volumePercent = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
-                volumePercent = Math.Max(0.0f, Math.Min(1.0f, volumePercent)); // Clamp to 0-1
-            }
+                // Below threshold - progressive beeping
+                // Calculate beep rate based on proximity (0.0 = far, 1.0 = at threshold)
+                float proximityRatio = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
 
-            _waveProvider.SetFrequency(frequency);
-            _waveProvider.SetVolume(volumePercent);
-            _waveProvider.SetBeeping(false); // Steady tone, not beeping
+                // Beep timing: Far = 500ms on/500ms off, Close = 50ms on/50ms off, At threshold = solid
+                int maxBeepMs = 500;
+                int minBeepMs = 50;
+
+                int beepOnMs = (int)(maxBeepMs - (proximityRatio * (maxBeepMs - minBeepMs)));
+                int beepOffMs = beepOnMs; // Keep on/off equal for rhythm
+
+                _waveProvider.SetBeeping(true, beepOnMs, beepOffMs);
+            }
 
             if (!_isPlaying)
             {
@@ -117,18 +152,75 @@ public class DynamicAudioEngine : IDisposable
                 _isPlaying = true;
             }
         }
-        // Too far below threshold - stop audio
         else
         {
-            if (_isPlaying)
-            {
-                _waveOut.Stop();
-                _isPlaying = false;
-            }
+            Stop();
         }
     }
 
-    // Calculates the current RPM rate of change in RPM/second
+    /// <summary>
+    /// Performance Learning mode: Pitch-based guidance indicating shift earlier/later.
+    /// High pitch = shift earlier (you're too high), Low pitch = shift later (you're too low), Medium pitch = optimal.
+    /// </summary>
+    private void UpdatePerformanceLearningAudio(int currentRPM, int threshold, int currentGear)
+    {
+        int warningDistance = 300; // Fixed distance for performance mode
+        int rpmFromThreshold = currentRPM - threshold;
+
+        // Only play when within warning distance
+        if (rpmFromThreshold >= -warningDistance)
+        {
+            // Calculate difference from recommended shift point
+            int rpmFromRecommended = currentRPM - _recommendedShiftRPM;
+
+            // Base frequency for this gear
+            float baseFrequency = 500f + (currentGear - 1) * 100f;
+
+            // Modulate frequency based on recommendation:
+            // - Currently shifting too late (above recommended): Higher pitch = shift earlier!
+            // - Shifting at optimal point: Normal pitch
+            // - Currently shifting too early (below recommended): Lower pitch = shift later!
+
+            float frequency;
+            if (_recommendedShiftRPM == 0)
+            {
+                // No recommendation yet - use normal frequency
+                frequency = baseFrequency;
+            }
+            else if (currentRPM > _recommendedShiftRPM + 175)
+            {
+                // Currently above recommended - HIGH pitch = shift earlier!
+                frequency = baseFrequency + 200f;
+            }
+            else if (currentRPM < _recommendedShiftRPM - 175)
+            {
+                // Currently below recommended - LOW pitch = shift later!
+                frequency = baseFrequency - 200f;
+            }
+            else
+            {
+                // Within ±175 RPM of optimal - normal pitch (optimal zone)
+                frequency = baseFrequency;
+            }
+
+            _waveProvider.SetFrequency(frequency);
+            _waveProvider.SetBeeping(false, 0, 0); // Solid tone in performance mode
+
+            if (!_isPlaying)
+            {
+                _waveOut.Play();
+                _isPlaying = true;
+            }
+        }
+        else
+        {
+            Stop();
+        }
+    }
+
+    /// <summary>
+    /// Calculates the current RPM rate of change in RPM/second.
+    /// </summary>
     private float CalculateRPMRate()
     {
         if (_rpmHistory.Count < 2)
@@ -138,55 +230,29 @@ public class DynamicAudioEngine : IDisposable
         var newest = _rpmHistory.Last();
 
         double timeDiffSeconds = (newest.timestamp - oldest.timestamp).TotalSeconds;
-        if (timeDiffSeconds < 0.01) // Avoid division by very small numbers
+        if (timeDiffSeconds < 0.01)
             return 0f;
 
         int rpmDiff = newest.rpm - oldest.rpm;
         return (float)(rpmDiff / timeDiffSeconds);
     }
 
-    // Determines how far before threshold to start beeping based on RPM acceleration
-    private int CalculateDynamicBeepDistance(float rpmRatePerSecond)
+    /// <summary>
+    /// Determines warning distance based on RPM acceleration.
+    /// </summary>
+    private int CalculateDynamicWarningDistance(float rpmRatePerSecond)
     {
-        // Very fast RPM increase (>1500 RPM/sec) - beep earlier to give reaction time
-        if (rpmRatePerSecond > 1500f)
-            return 200; // Start beeping 200 RPM below threshold
-
-        // Fast RPM increase (>1000 RPM/sec)
-        if (rpmRatePerSecond > 1000f)
-            return 150; // Start beeping 150 RPM below threshold
-
-        // Moderate-fast increase (>600 RPM/sec)
-        if (rpmRatePerSecond > 600f)
-            return 120;
-
-        // Moderate increase (>300 RPM/sec)
-        if (rpmRatePerSecond > 300f)
-            return 100;
-
-        // Slow-moderate increase (>150 RPM/sec)
-        if (rpmRatePerSecond > 150f)
-            return 80;
-
-        // Slow increase (>50 RPM/sec) - beep close to threshold
-        if (rpmRatePerSecond > 50f)
-            return 50;
-
-        // Very slow or stable - beep right at threshold
+        if (rpmRatePerSecond > 1500f) return 200;
+        if (rpmRatePerSecond > 1000f) return 150;
+        if (rpmRatePerSecond > 600f) return 120;
+        if (rpmRatePerSecond > 300f) return 100;
+        if (rpmRatePerSecond > 150f) return 80;
+        if (rpmRatePerSecond > 50f) return 50;
         return 30;
     }
 
-    // Gets the current RPM rate for display purposes
-    public float GetCurrentRPMRate()
-    {
-        return CalculateRPMRate();
-    }
-
-    // Gets the current dynamic beeping distance for display
-    public int GetCurrentWarningDistance()
-    {
-        return CalculateDynamicBeepDistance(CalculateRPMRate());
-    }
+    public float GetCurrentRPMRate() => CalculateRPMRate();
+    public int GetCurrentWarningDistance() => CalculateDynamicWarningDistance(CalculateRPMRate());
 
     public void Stop()
     {
@@ -204,18 +270,19 @@ public class DynamicAudioEngine : IDisposable
     }
 }
 
-// Generates triangle wave audio with optional beeping and volume control
+/// <summary>
+/// Generates triangle wave audio with configurable beeping patterns.
+/// </summary>
 internal class TriangleWaveProvider : ISampleProvider
 {
     private float _frequency;
     private float _phase;
     private bool _isBeeping;
-    private float _volume = 1.0f; // Volume multiplier (0.0 to 1.0)
+    private int _beepOnSamples;
+    private int _beepOffSamples;
     private int _samplesSinceBeepToggle;
     private bool _beepOn = true;
-    private const int BeepOnSamples = 4410; // ~100ms at 44.1kHz
-    private const int BeepOffSamples = 4410;
-    private const float BaseAmplitude = 0.15f;
+    private const float Amplitude = 0.15f; // Constant volume
 
     public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
 
@@ -224,18 +291,28 @@ internal class TriangleWaveProvider : ISampleProvider
         _frequency = frequency;
     }
 
-    public void SetVolume(float volume)
+    /// <summary>
+    /// Sets beeping pattern. If not beeping, plays solid tone.
+    /// </summary>
+    /// <param name="isBeeping">Whether to beep or play solid tone</param>
+    /// <param name="beepOnMs">Duration of beep in milliseconds</param>
+    /// <param name="beepOffMs">Duration of silence in milliseconds</param>
+    public void SetBeeping(bool isBeeping, int beepOnMs, int beepOffMs)
     {
-        _volume = Math.Max(0.0f, Math.Min(1.0f, volume)); // Clamp to 0-1
-    }
+        bool modeChanged = _isBeeping != isBeeping;
 
-    public void SetBeeping(bool isBeeping)
-    {
-        if (_isBeeping != isBeeping)
+        _isBeeping = isBeeping;
+
+        if (isBeeping)
         {
-            _isBeeping = isBeeping;
-            _samplesSinceBeepToggle = 0;
-            _beepOn = true;
+            _beepOnSamples = (int)(beepOnMs * WaveFormat.SampleRate / 1000.0);
+            _beepOffSamples = (int)(beepOffMs * WaveFormat.SampleRate / 1000.0);
+
+            if (modeChanged)
+            {
+                _samplesSinceBeepToggle = 0;
+                _beepOn = true;
+            }
         }
     }
 
@@ -245,17 +322,17 @@ internal class TriangleWaveProvider : ISampleProvider
         {
             float sample = 0f;
 
-            // Handle beeping mode (100ms on/off pattern)
+            // Handle beeping mode
             if (_isBeeping)
             {
                 _samplesSinceBeepToggle++;
 
-                if (_beepOn && _samplesSinceBeepToggle >= BeepOnSamples)
+                if (_beepOn && _samplesSinceBeepToggle >= _beepOnSamples)
                 {
                     _beepOn = false;
                     _samplesSinceBeepToggle = 0;
                 }
-                else if (!_beepOn && _samplesSinceBeepToggle >= BeepOffSamples)
+                else if (!_beepOn && _samplesSinceBeepToggle >= _beepOffSamples)
                 {
                     _beepOn = true;
                     _samplesSinceBeepToggle = 0;
@@ -268,18 +345,16 @@ internal class TriangleWaveProvider : ISampleProvider
                 }
             }
 
-            // Generate triangle wave sample
+            // Generate triangle wave sample (constant amplitude)
             float phaseValue = _phase % 1.0f;
 
             if (phaseValue < 0.5f)
             {
-                // Rising edge: 0 to 0.5 maps to -1 to 1
-                sample = (phaseValue * 4f - 1f) * BaseAmplitude * _volume;
+                sample = (phaseValue * 4f - 1f) * Amplitude;
             }
             else
             {
-                // Falling edge: 0.5 to 1 maps to 1 to -1
-                sample = (3f - phaseValue * 4f) * BaseAmplitude * _volume;
+                sample = (3f - phaseValue * 4f) * Amplitude;
             }
 
             buffer[offset + i] = sample;

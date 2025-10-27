@@ -1,0 +1,100 @@
+ACC RPM Monitor v2.1.1 - Release Information
+=============================================
+
+Build Date: October 25, 2025
+Release Tag: v2.1.1
+Framework: .NET 8.0 (Windows)
+Architecture: x64
+
+Release Artifacts:
+------------------
+
+1. ACCRPMMonitor-v2.1.1.zip (85 MB)
+   - Complete release with all dependencies and runtime files
+   - Includes runtimes folder for native dependencies
+   - Ready to run without additional setup
+
+2. ACCRPMMonitor-v2.1.1-standalone.zip (1.2 MB)
+   - Lightweight version with core binaries only
+   - Requires .NET 6.0+ Runtime to be installed separately
+   - Recommended for users with .NET already installed
+
+Release Contents:
+-----------------
+
+Main Application:
+  - ACCRPMMonitor.exe (148 KB)
+  - ACCRPMMonitor.dll (75 KB)
+
+Dependencies:
+  - NAudio libraries (audio engine)
+  - ScottPlot.dll (graph generation)
+  - SharpDX (DirectInput for device communication)
+  - SkiaSharp (rendering)
+
+Runtime Files:
+  - ACCRPMMonitor.deps.json
+  - ACCRPMMonitor.runtimeconfig.json
+  - All native runtime libraries
+
+What's New in v2.1.1:
+---------------------
+
+- Restored comprehensive README.md documentation
+- Updated documentation to reflect all v2.1.0 features
+- Complete feature list with detailed descriptions
+- Installation and usage instructions
+- Troubleshooting guide for common issues
+
+Note: This is a documentation release for v2.1.0 that was missing the README file.
+
+System Requirements:
+--------------------
+
+- Windows 10/11 (64-bit)
+- .NET 6.0 Runtime or later (included in full release)
+- Audio output device
+- Assetto Corsa Competizione (for functionality)
+
+Installation Instructions:
+---------------------------
+
+Option 1 (Full Package - Recommended):
+1. Extract ACCRPMMonitor-v2.1.1.zip to any folder
+2. Run ACCRPMMonitor.exe
+3. No additional setup required
+
+Option 2 (Standalone):
+1. Ensure .NET 6.0+ Runtime is installed
+2. Extract ACCRPMMonitor-v2.1.1-standalone.zip to any folder
+3. Run ACCRPMMonitor.exe
+
+Configuration:
+---------------
+
+Configurations are stored in: %LocalAppData%\ACCRPMMonitor\
+- Vehicle configs: powercurves\ folder
+- Reports and graphs: reports\ folder
+
+Access via the application's "Open Config Folder" menu option.
+
+Build Details:
+---------------
+
+Compiler: .NET 8.0
+Build Type: Release
+Build Date: 2025-10-25
+Commit: b60f982 (Restore README.md for release v2.1.0)
+
+Main Dependencies:
+  - NAudio 2.2.1
+  - ScottPlot 5.1.57
+  - SharpDX.DirectInput 4.2.0
+
+Known Issues:
+---------------
+
+None currently reported.
+
+For detailed changelog and release notes, see:
+https://github.com/HaydenJM/ACC-RPM-Monitor/releases/tag/v2.1.1

@@ -284,8 +284,318 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.0] - 2025-10-25
+
+### Added - Machine Learning & Performance-Based Optimization
+
+- **Performance Learning Mode**: Revolutionary performance-driven shift optimization that learns from actual lap performance
+  - Combines physics-based acceleration analysis with real-world lap time correlation
+  - Automatically detects gear shifts and tracks shift patterns
+  - Correlates shift RPMs with lap times and off-track events
+  - Continuously refines shift points to maximize lap performance
+  - Adaptive learning rate (increases confidence with more data)
+  - Real-time recommendations: "Try shifting 200 RPM earlier for better performance"
+
+- **Intelligent Shift Detection System**: Automatically identifies and analyzes every gear change
+  - Detects upshifts during acceleration (requires 30%+ throttle, >3000 RPM)
+  - Detects downshifts while braking (filtered to exclude engine braking)
+  - Records shift context: RPM, speed, throttle position, track location
+  - Associates shifts with lap performance outcomes
+  - Filters out invalid shifts (neutral, reverse, standing starts)
+
+- **Lap Performance Tracking**: Comprehensive lap-by-lap analysis
+  - Tracks lap times from ACC telemetry (parses MM:SS.mmm format)
+  - Monitors off-track events and duration
+  - Validates laps based on completion time and track adherence
+  - Associates all shifts in a lap with that lap's performance
+  - Builds historical database of lap performance
+
+- **Shift Pattern Analysis Engine**: Correlates shift behavior with racing outcomes
+  - Groups shifts by RPM buckets (200 RPM ranges)
+  - Calculates average lap time for each shift RPM range
+  - Identifies optimal shift points based on actual performance
+  - Composite scoring: lap time + (off-track time × 1000ms penalty)
+  - Requires minimum 5 valid laps for reliable recommendations
+  - Per-gear analysis showing shift patterns vs. performance
+
+- **Weighted Learning Algorithm**: Blends physics and performance data intelligently
+  - **40% weight**: Physics-based acceleration analysis (theoretical optimal)
+  - **60% weight**: Performance-based learning (actual results)
+  - Adaptive learning rate: Conservative start (20%) → Aggressive (80% at 20+ laps)
+  - Handles missing data gracefully (falls back to available source)
+  - Confidence increases with data quantity
+
+- **Comprehensive Performance Reports**: Detailed analysis saved after each session
+  - **JSON format**: Structured data for programmatic analysis
+  - **Human-readable text**: Detailed insights and recommendations
+  - Per-gear shift statistics (min/max/avg RPM)
+  - RPM bucket performance breakdown showing lap times and scores
+  - Physics vs Performance comparison with interpretation
+  - Overall session summary with learning metrics
+  - Reports saved to `%LocalAppData%/ACCRPMMonitor/shift_analysis/`
+
+- **Enhanced Telemetry Reading**: Expanded ACC shared memory integration
+  - `ReadLapTiming()`: Current, last, and best lap times + completed lap count
+  - `ReadPosition()`: Local position (X,Y,Z) and normalized track position (0.0-1.0)
+  - Off-track detection using vertical position changes
+  - Wide string parsing for ACC's Unicode time format
+  - Lap time parsing to milliseconds for performance comparison
+
+- **Real-Time Learning Display**: Live feedback during Performance Learning Mode
+  - Total laps completed and valid laps analyzed
+  - Total shifts recorded and categorized
+  - Current learning rate percentage
+  - Data quality assessment (Building/Good/Excellent)
+  - Per-gear shift point recommendations with confidence
+  - Live status showing optimal vs. current shift points
+
+### Changed
+
+- **Monitor Mode Selection**: Added third option for Performance Learning Mode
+  - Standard Mode: Fixed shift points
+  - Adaptive Mode: Continuous acceleration-based learning
+  - **Performance Learning Mode**: Performance-driven lap time optimization
+
+- **Main Monitor Loop Enhanced**: Performance mode includes comprehensive telemetry
+  - Reads lap timing, position, and shift data simultaneously
+  - Updates learning models every 15 seconds
+  - Provides real-time recommendations during driving
+  - Generates final report at session end
+
+### Technical Implementation
+
+- **New Classes**:
+  - `ShiftPatternAnalyzer`: Detects shifts, tracks laps, correlates performance
+  - `PerformanceLearningEngine`: Machine learning algorithm for shift optimization
+  - `ShiftPatternReportGenerator`: Creates JSON and text performance reports
+  - `LapTimingData`: Parses and stores lap timing information
+  - `PositionData`: Tracks car position for off-track detection
+
+- **New Data Models**:
+  - `ShiftEvent`: Captures shift details (gears, RPMs, speed, position, throttle)
+  - `LapPerformance`: Stores lap metrics (time, off-track data, validity)
+  - `ShiftPerformanceData`: Links shifts to lap outcomes
+  - `ShiftPatternReport`: Aggregates session-wide shift analysis
+  - `LearningReport`: Compares physics vs performance recommendations
+  - `ShiftPointRecommendation`: Real-time guidance for driver
+
+- **Enhanced ACCSharedMemorySimple**:
+  - Added `ReadLapTiming()` for comprehensive timing data
+  - Added `ReadPosition()` for spatial tracking
+  - Added `ParseTimeString()` helper for Unicode time parsing
+  - Improved memory offsets for accurate data reading
+
+- **Algorithm Details**:
+  - Shift detection: Compares consecutive gear readings with validation filters
+  - Off-track detection: Vertical position delta threshold (0.5 units)
+  - RPM bucketing: 200 RPM ranges for statistical grouping
+  - Performance scoring: `lap_time_ms + (off_track_seconds × 1000)`
+  - Learning rate formula: `min(0.8, 0.2 + valid_laps / 25)`
+  - Weighted blending: `(physics × 0.4 + performance × 0.6) / total_weight`
+
+### User Controls (Performance Learning Mode)
+
+- **ESC**: Exit session and optionally save learned configuration
+- **F2**: Immediately save current learned shift points
+- **F3**: Generate and save performance report during session
+
+### Performance Benefits
+
+- **Optimizes for real lap times** instead of theoretical acceleration
+- **Adapts to driving style** (conservative vs aggressive shifting)
+- **Accounts for track-specific factors** (elevation, grip, tire wear)
+- **Learns from mistakes** (penalizes shifts that lead to off-track)
+- **Converges on optimal points** (more laps = higher confidence)
+
+### Example Workflow
+
+1. Start Performance Learning Mode
+2. Complete 3-5 clean laps with varied shift points
+3. System analyzes: "Gear 3 performs best at 7200-7400 RPM"
+4. Recommendation: "↓ Try shifting 150 RPM earlier for better performance"
+5. Adjust shifting, complete more laps
+6. Save learned configuration when satisfied
+7. Review detailed report showing correlation between shifts and lap times
+
+### Dependencies
+
+- No new external dependencies required
+- Uses existing .NET libraries for JSON serialization
+
+### Known Limitations
+
+- Off-track detection simplified (vertical position change only)
+- Requires minimum 3-5 valid laps for meaningful learning
+- Performance data resets each session (no persistent learning yet)
+- Track position data may vary by circuit layout
+
+### Future Enhancements
+
+- Persistent learning database across sessions
+- Track-specific shift point profiles
+- Corner-by-corner shift analysis using track position
+- Integration with telemetry logging systems
+- Export learned data to external tools
+- Visual performance graphs and heatmaps
+
+---
+
+## [3.1.0] - 2025-10-26
+
+### Added - Enhanced Audio System, Lap Validation & Vehicle Detection
+
+- **Validated Lap Tracking**: Proper lap validity detection using ACC's shared memory fields
+  - Reads `graphics.validated_laps` (offset 112) to determine lap validity
+  - Implements recommended pattern: `completed_laps` vs `validated_laps` comparison
+  - Dual validation system: ACC's validation + sanity checks (both must pass)
+  - New `WasLastLapValid()` method for easy validity checking
+  - Added `IsValidByACC` and `IsValidByMetrics` flags to `LapPerformance` for diagnostics
+  - Note: validated_laps may be unreliable during race sessions (works best in practice/qualifying)
+
+- **Mode-Specific Audio System**: Two distinct audio feedback strategies
+  - **Standard/Adaptive Mode**: Progressive beeping system
+    - Far from threshold: Slow beeps (500ms on/off)
+    - Approaching: Beeps accelerate progressively
+    - Close to threshold: Fast beeps (50ms on/off)
+    - At threshold: Solid tone
+    - Intuitive rhythm that speeds up naturally
+
+  - **Performance Learning Mode**: Pitch-based guidance
+    - **High pitch** (+200 Hz): You're shifting too late → shift earlier
+    - **Normal pitch**: Shifting at optimal point
+    - **Low pitch** (-200 Hz): You're shifting too early → shift later
+    - Solid tone (no beeping) for cleaner guidance
+    - Real-time display shows pitch meaning
+
+- **Audio Mode System**: `AudioMode` enum with `Standard` and `PerformanceLearning` modes
+  - `SetMode()`: Configure audio behavior per monitoring mode
+  - `SetRecommendedShiftRPM()`: Feed learning recommendations to audio engine
+  - Automatic mode switching based on selected monitor mode
+
+- **Vehicle Detection in Change Vehicle Menu**: Automatic car detection now integrated into vehicle selection
+  - Shows detected vehicle with [detected] marker in vehicle list
+  - One-click auto-select with [A] option
+  - Re-detects vehicle each time menu is opened
+  - Verified offset 68 from ACC SDK (ebnerdm/accshm repository)
+  - Reads CarModel as `[33]uint16` (66 bytes) UTF-16 encoded string
+
+- **RPM Rising Filter**: Prevents corner throttle data contamination
+  - Only collects data when RPMs rising ≥100 RPM/sec
+  - Filters out high-throttle corner maintenance (sustained RPM)
+  - Ensures shift points calculated from actual acceleration, not corner speed
+
+- **Optimal Shift Window Expanded**: Pitch guidance now uses ±175 RPM window (increased from ±100 RPM)
+  - Larger "optimal zone" for more forgiving feedback
+  - High pitch only when >175 RPM above optimal
+  - Low pitch only when >175 RPM below optimal
+  - Normal pitch within ±175 RPM range
+
+### Changed
+
+- **Audio System Completely Redesigned**:
+  - **Removed volume modulation** - constant amplitude (0.15f) across all modes
+  - Volume no longer ramps up as RPM approaches threshold
+  - Replaced with **frequency-based** (beep speed) or **pitch-based** guidance
+  - Each mode optimized for its specific use case
+
+- **Progressive Beeping Implementation**:
+  - Beep timing calculated based on proximity ratio (0.0 = far, 1.0 = at threshold)
+  - Smooth acceleration from 500ms intervals to 50ms intervals
+  - Equal on/off duration for consistent rhythm
+  - Becomes solid tone exactly at threshold
+
+- **Performance Learning Display Enhanced**:
+  - Shows audio pitch indicator: "HIGH (shift earlier)" / "LOW (shift later)" / "NORMAL (optimal)"
+  - Clearer feedback about what the audio is telling you
+  - Recommendation message + audio pitch work together
+
+- **Exit Controls Clarified**:
+  - Performance Learning Mode: "ESC - Return to main menu (prompts to save)"
+  - Clear indication that ESC goes back to menu, not just exit app
+  - Consistent behavior across all modes
+
+- **Console Window Size**: Adjusted to 82x60 (slightly larger than 80-character menu title)
+  - Better fit for menu display
+  - Prevents text wrapping on title bars
+
+### Technical Implementation
+
+- **Enhanced `DynamicAudioEngine`**:
+  - New `AudioMode` enum: `Standard` vs `PerformanceLearning`
+  - New `SetMode(AudioMode)` method
+  - New `SetRecommendedShiftRPM(int)` method
+  - Split audio logic: `UpdateStandardAudio()` vs `UpdatePerformanceLearningAudio()`
+  - Removed volume ramping logic entirely
+
+- **Enhanced `TriangleWaveProvider`**:
+  - Removed `SetVolume()` method (no longer needed)
+  - Constant amplitude: 0.15f
+  - `SetBeeping(bool, int, int)` now takes millisecond timing parameters
+  - Dynamically calculates sample counts from milliseconds
+
+- **Enhanced `LapTimingData`**:
+  - Added `ValidatedLaps` property
+  - Added `WasLastLapValid()` method
+  - Proper parsing of `graphics.numberOfLaps` field
+
+- **Enhanced `ShiftPatternAnalyzer.CompleteLap()`**:
+  - Uses `lapTiming.WasLastLapValid()` as primary validity check
+  - Combines ACC validation with metric validation
+  - Stores both validity flags for diagnostics
+  - Added documentation about race session unreliability
+
+- **Enhanced `VehicleDetector`**:
+  - Removed unused ACCStatic struct (now uses direct memory reading)
+  - Verified CarModel offset 68 from ACC SDK
+  - Reads 66 bytes as Unicode string
+  - Integrated into ConfigUI.ShowVehicleSelectionMenu()
+
+- **Enhanced `OptimalShiftAnalyzer.AddDataPoint()`**:
+  - Added RPM rate tracking (_lastRPM, _lastDataPointTime)
+  - Calculates RPM/second between samples
+  - Only collects when RPMs rising ≥100 RPM/sec
+  - Prevents corner throttle contamination
+
+### Performance & User Experience
+
+- **More Intuitive Audio Feedback**:
+  - Progressive beeping feels natural and predictable
+  - Pitch guidance provides instant feedback without looking at screen
+  - Constant volume prevents audio fatigue
+
+- **More Reliable Lap Validation**:
+  - Uses ACC's built-in validation system
+  - Dual validation prevents false positives
+  - Clear diagnostic flags for troubleshooting
+
+- **Better Learning Quality**:
+  - Only valid laps contribute to learning
+  - More accurate performance correlation
+  - Better shift point recommendations
+
+### Known Improvements
+
+- Audio feedback is now clearer and less fatiguing
+- Pitch-based guidance makes Performance Learning mode more intuitive with ±175 RPM optimal zone
+- Progressive beeping provides better timing awareness in Standard/Adaptive modes
+- Validated laps ensure high-quality learning data
+- RPM rising filter eliminates corner throttle contamination
+- Vehicle detection now fully integrated and functional
+- Larger console window prevents menu text wrapping
+
+### Bug Fixes
+
+- Fixed corner throttle data collection issue (high throttle but not accelerating)
+- Fixed VehicleDetector not being used after initial startup
+- Corrected pitch guidance logic (HIGH=earlier, LOW=later)
+- Improved lap validation with fallback heuristics
+
+---
+
 ## Version History Summary
 
+- **v3.1.0** (2025-10-25) - Enhanced audio system with progressive beeping and pitch guidance, validated lap tracking
+- **v3.0.0** (2025-10-25) - **MAJOR RELEASE**: Machine learning performance optimization, shift pattern analysis, and intelligent recommendations
 - **v2.1.0** (2025-10-19) - Major improvements to data collection, audio system, and diagnostics
 - **v2.0.0** (2025-10-10) - Auto-configuration workflow, adaptive mode, and reporting system
 - **v1.0.0** (2025-10-07) - Initial release with core audio feedback system and configuration management

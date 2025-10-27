@@ -1,0 +1,421 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{algorithmic}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{Acceleration-Based Optimal Shift Point Algorithm for GT3 Racing}
+\author{ACCRPMMonitor - Assetto Corsa Competizione}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Objective}
+Find the RPM at which shifting to the next gear provides better acceleration than staying in the current gear, optimizing lap times by maximizing acceleration throughout the power band. This algorithm is specifically optimized for GT3 race cars, which typically feature high-revving engines with strong power delivery near redline.
+
+\section{Mathematical Formulation}
+
+\subsection{Step 1: Acceleration Calculation}
+
+For each pair of consecutive telemetry data points $(i-1, i)$, calculate the instantaneous acceleration:
+
+\begin{equation}
+a_i = \frac{v_i - v_{i-1}}{t_i - t_{i-1}}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $a_i$ = acceleration at point $i$ (m/s$^2$)
+    \item $v_i$ = speed at point $i$ (m/s)
+    \item $t_i$ = timestamp at point $i$ (seconds)
+\end{itemize}
+
+Group acceleration values by RPM buckets (100 RPM intervals):
+
+\begin{equation}
+\text{RPM}_{\text{bucket}} = \left\lfloor \frac{\text{RPM}_{\text{avg}}}{100} \right\rfloor \times 100
+\end{equation}
+
+Average all acceleration values in each bucket to create the acceleration function:
+
+\begin{equation}
+A_{\text{gear}}(\text{RPM}) = \frac{1}{n} \sum_{i \in \text{bucket}} a_i
+\end{equation}
+
+where $n$ is the number of samples in the RPM bucket $[\text{RPM}, \text{RPM}+100)$.
+
+This gives us the acceleration function $A_{\text{gear}}(\text{RPM})$ for each gear.
+
+\subsection{Step 2: Gear Ratio Estimation}
+
+Find the overlapping speed range between gear $N$ and gear $N+1$:
+
+\begin{equation}
+V_{\text{overlap}} = \left[\max\left(V_{\min}^N, V_{\min}^{N+1}\right), \min\left(V_{\max}^N, V_{\max}^{N+1}\right)\right]
+\end{equation}
+
+Calculate the RPM-to-speed ratio for each gear in the overlap region:
+
+\begin{equation}
+R_N = \frac{1}{n_N} \sum_{i: v_i \in V_{\text{overlap}}, \text{gear}=N} \frac{\text{RPM}_i}{v_i}
+\end{equation}
+
+\begin{equation}
+R_{N+1} = \frac{1}{n_{N+1}} \sum_{i: v_i \in V_{\text{overlap}}, \text{gear}=N+1} \frac{\text{RPM}_i}{v_i}
+\end{equation}
+
+The gear ratio between gear $N$ and gear $N+1$ is:
+
+\begin{equation}
+\text{GR}_{N \to N+1} = \frac{R_N}{R_{N+1}}
+\end{equation}
+
+\subsection{Step 3: Adaptive Crossover Point Detection}
+
+For each RPM level in gear $N$, predict the RPM after shifting to gear $N+1$:
+
+\begin{equation}
+\text{RPM}_{N+1} = \frac{\text{RPM}_N}{\text{GR}_{N \to N+1}}
+\end{equation}
+
+Calculate the acceleration advantage ratio (relative improvement):
+
+\begin{equation}
+R_A(\text{RPM}_N) = \frac{A_{N+1}(\text{RPM}_{N+1}) - A_N(\text{RPM}_N)}{A_N(\text{RPM}_N)}
+\end{equation}
+
+\subsubsection{Adaptive Threshold Based on Power Curve Characteristics}
+
+Analyze the current gear's power delivery to determine optimal threshold:
+
+\begin{equation}
+\text{RPM}_{\text{top}} = \text{RPM}_{\max} - 0.2 \times (\text{RPM}_{\max} - \text{RPM}_{\min})
+\end{equation}
+
+\begin{equation}
+\text{RPM}_{\text{mid}} = \text{RPM}_{\min} + 0.5 \times (\text{RPM}_{\max} - \text{RPM}_{\min})
+\end{equation}
+
+\begin{equation}
+A_{\text{top}} = \text{avg}\left\{A_N(\text{RPM}) \mid \text{RPM} \geq \text{RPM}_{\text{top}}\right\}
+\end{equation}
+
+\begin{equation}
+A_{\text{mid}} = \text{avg}\left\{A_N(\text{RPM}) \mid \text{RPM} \leq \text{RPM}_{\text{mid}}\right\}
+\end{equation}
+
+Define adaptive minimum advantage threshold (GT3-optimized):
+
+\begin{equation}
+\theta_{\min} = \begin{cases}
+0.05 & \text{if } A_{\text{top}} < 0.70 \times A_{\text{mid}} \quad \text{(power drops significantly)} \\
+0.10 & \text{otherwise} \quad \text{(GT3 default - high-revving)}
+\end{cases}
+\end{equation}
+
+Find the optimal shift point where the advantage is both significant and maximized:
+
+\begin{equation}
+\text{RPM}_{\text{optimal}} = \underset{\text{RPM}}{\arg\max} \left\{ R_A(\text{RPM}) \mid R_A(\text{RPM}) > \theta_{\min} \right\}
+\end{equation}
+
+This GT3-optimized adaptive approach:
+\begin{itemize}
+    \item \textbf{Default: 10\% advantage} for typical GT3 power curves (prevents early shifting near redline)
+    \item \textbf{Fallback: 5\% advantage} only when power clearly drops off (>30\% loss at high RPM)
+    \item Designed for high-revving race engines that maintain strong acceleration to redline
+    \item Automatically adapts to each GT3 car's unique power characteristics
+\end{itemize}
+
+\section{Algorithm Pseudocode}
+
+\begin{algorithmic}
+\STATE \textbf{function} FindOptimalShiftPoint($\text{gear}_N$)
+\STATE \quad // Step 1: Calculate acceleration curves
+\STATE \quad $A_N \gets$ CalculateAccelerationCurve($\text{gear}_N$)
+\STATE \quad $A_{N+1} \gets$ CalculateAccelerationCurve($\text{gear}_{N+1}$)
+\STATE
+\STATE \quad \textbf{if} InsufficientData($A_N$) \textbf{or} InsufficientData($A_{N+1}$) \textbf{then}
+\STATE \quad \quad \textbf{return} FallbackMaxSpeedMethod($\text{gear}_N$)
+\STATE \quad \textbf{end if}
+\STATE
+\STATE \quad // Step 2: Estimate gear ratio
+\STATE \quad $\text{GR} \gets$ EstimateGearRatio($\text{gear}_N$, $\text{gear}_{N+1}$)
+\STATE
+\STATE \quad \textbf{if} $\text{GR} \leq 0$ \textbf{then}
+\STATE \quad \quad \textbf{return} FallbackMaxSpeedMethod($\text{gear}_N$)
+\STATE \quad \textbf{end if}
+\STATE
+\STATE \quad // Step 3: Find crossover point with adaptive threshold
+\STATE \quad $\text{best\_rpm} \gets \text{null}$
+\STATE \quad $\text{best\_advantage\_ratio} \gets 0$
+\STATE
+\STATE \quad // Determine adaptive threshold based on power curve
+\STATE \quad $\text{RPM}_{\max} \gets \max(A_N.\text{keys}())$
+\STATE \quad $\text{RPM}_{\min} \gets \min(A_N.\text{keys}())$
+\STATE \quad $\text{RPM}_{\text{top}} \gets \text{RPM}_{\max} - 0.2 \times (\text{RPM}_{\max} - \text{RPM}_{\min})$
+\STATE \quad $\text{RPM}_{\text{mid}} \gets \text{RPM}_{\min} + 0.5 \times (\text{RPM}_{\max} - \text{RPM}_{\min})$
+\STATE
+\STATE \quad $A_{\text{top}} \gets \text{avg}\{A_N[\text{rpm}] \mid \text{rpm} \geq \text{RPM}_{\text{top}}\}$
+\STATE \quad $A_{\text{mid}} \gets \text{avg}\{A_N[\text{rpm}] \mid \text{rpm} \leq \text{RPM}_{\text{mid}}\}$
+\STATE
+\STATE \quad // GT3-optimized: Default to 10\%, lower only if power drops significantly
+\STATE \quad \textbf{if} $A_{\text{top}} < 0.70 \times A_{\text{mid}}$ \textbf{then}
+\STATE \quad \quad $\theta_{\min} \gets 0.05$ \quad // Power drops significantly: 5\% sufficient
+\STATE \quad \textbf{else}
+\STATE \quad \quad $\theta_{\min} \gets 0.10$ \quad // GT3 default: 10\% required
+\STATE \quad \textbf{end if}
+\STATE
+\STATE \quad \textbf{for each} $\text{rpm} \in A_N.\text{keys}()$ \textbf{do}
+\STATE \quad \quad $a_{\text{current}} \gets A_N[\text{rpm}]$
+\STATE \quad \quad $\text{rpm}_{\text{next}} \gets \text{rpm} / \text{GR}$
+\STATE \quad \quad $a_{\text{next}} \gets A_{N+1}[\text{ClosestRPM}(\text{rpm}_{\text{next}})]$
+\STATE
+\STATE \quad \quad // Calculate relative advantage (percentage improvement)
+\STATE \quad \quad $R_a \gets (a_{\text{next}} - a_{\text{current}}) / a_{\text{current}}$
+\STATE
+\STATE \quad \quad // Require adaptive threshold to avoid early shifting
+\STATE \quad \quad \textbf{if} $R_a > \theta_{\min}$ \textbf{and} $R_a > \text{best\_advantage\_ratio}$ \textbf{then}
+\STATE \quad \quad \quad $\text{best\_advantage\_ratio} \gets R_a$
+\STATE \quad \quad \quad $\text{best\_rpm} \gets \text{rpm}$
+\STATE \quad \quad \textbf{end if}
+\STATE \quad \textbf{end for}
+\STATE
+\STATE \quad \textbf{if} $\text{best\_rpm} \neq \text{null}$ \textbf{then}
+\STATE \quad \quad \textbf{return} $\text{best\_rpm}$
+\STATE \quad \textbf{else}
+\STATE \quad \quad \textbf{return} FallbackMaxSpeedMethod($\text{gear}_N$)
+\STATE \quad \textbf{end if}
+\STATE \textbf{end function}
+\end{algorithmic}
+
+\section{Example Calculation}
+
+Consider shifting from 2nd gear to 3rd gear:
+
+\subsection{Given Data}
+\begin{itemize}
+    \item At 6800 RPM in 2nd gear: $A_2(6800) = 2.5$ m/s$^2$
+    \item At 6500 RPM in 2nd gear: $A_2(6500) = 2.8$ m/s$^2$
+    \item At 6200 RPM in 2nd gear: $A_2(6200) = 3.0$ m/s$^2$
+    \item Gear ratio: $\text{GR}_{2 \to 3} = 1.31$
+    \item Minimum advantage threshold: $\theta_{\min} = 0.05$ (5\%)
+\end{itemize}
+
+\subsection{Analysis at 6800 RPM}
+After shifting to 3rd gear:
+\begin{equation}
+\text{RPM}_3 = \frac{6800}{1.31} \approx 5191 \text{ RPM}
+\end{equation}
+
+If $A_3(5191) = 3.1$ m/s$^2$, then:
+\begin{equation}
+R_A(6800) = \frac{3.1 - 2.5}{2.5} = \frac{0.6}{2.5} = 0.24 = 24\%
+\end{equation}
+
+Since $24\% > 5\%$, this is a valid shift point with significant advantage. \textbf{(SHIFT NOW!)}
+
+\subsection{Analysis at 6500 RPM}
+After shifting to 3rd gear:
+\begin{equation}
+\text{RPM}_3 = \frac{6500}{1.31} \approx 4962 \text{ RPM}
+\end{equation}
+
+If $A_3(4962) = 2.4$ m/s$^2$, then:
+\begin{equation}
+R_A(6500) = \frac{2.4 - 2.8}{2.8} = \frac{-0.4}{2.8} = -0.14 = -14\%
+\end{equation}
+
+Since $-14\% < 5\%$, staying in 2nd gear is better. \textbf{(TOO EARLY, STAY IN GEAR)}
+
+\subsection{Analysis at 6200 RPM}
+After shifting to 3rd gear:
+\begin{equation}
+\text{RPM}_3 = \frac{6200}{1.31} \approx 4733 \text{ RPM}
+\end{equation}
+
+If $A_3(4733) = 3.05$ m/s$^2$, then:
+\begin{equation}
+R_A(6200) = \frac{3.05 - 3.0}{3.0} = \frac{0.05}{3.0} = 0.017 = 1.7\%
+\end{equation}
+
+Since $1.7\% < 5\%$, the advantage is marginal and not significant. \textbf{(TOO EARLY, WAIT)}
+
+This example shows how the 5\% threshold prevents premature shifting when acceleration advantage is minimal.
+
+\section{Adaptive Threshold Example}
+
+Consider two different vehicle types to demonstrate adaptive threshold selection:
+
+\subsection{Typical GT3 Car (Mercedes AMG GT3)}
+
+\textbf{Data Analysis:}
+\begin{itemize}
+    \item RPM range in 3rd gear: 4000-8000 RPM
+    \item Average acceleration at mid-range (4000-6000 RPM): $A_{\text{mid}} = 3.2$ m/s$^2$
+    \item Average acceleration at top range (6400-8000 RPM): $A_{\text{top}} = 2.9$ m/s$^2$
+\end{itemize}
+
+\textbf{Threshold Selection (GT3-optimized):}
+\begin{equation}
+A_{\text{top}} = 2.9 \geq 0.70 \times 3.2 = 2.24 \quad \Rightarrow \quad \theta_{\min} = 0.10
+\end{equation}
+
+Power remains strong at high RPM (default GT3 behavior), so require 10\% advantage. At 7500 RPM with $A_3(7500) = 2.7$ m/s$^2$:
+\begin{equation}
+R_A = \frac{A_4(\text{calculated}) - 2.7}{2.7} \text{ must exceed } 0.10 \text{ to shift}
+\end{equation}
+
+\textbf{Result}: Shifts near 7800 RPM (close to redline).
+
+\subsection{GT3 Car with Early Power Drop (Honda NSX GT3)}
+
+\textbf{Data Analysis:}
+\begin{itemize}
+    \item RPM range in 3rd gear: 3500-7200 RPM
+    \item Average acceleration at mid-range (3500-5350 RPM): $A_{\text{mid}} = 3.5$ m/s$^2$
+    \item Average acceleration at top range (5760-7200 RPM): $A_{\text{top}} = 2.3$ m/s$^2$
+\end{itemize}
+
+\textbf{Threshold Selection:}
+\begin{equation}
+A_{\text{top}} = 2.3 < 0.70 \times 3.5 = 2.45 \quad \Rightarrow \quad \theta_{\min} = 0.05
+\end{equation}
+
+Power drops significantly at high RPM (>30\% loss), so allow earlier shifting with 5\% threshold. Shifts around 6400 RPM where next gear provides 5\%+ advantage.
+
+\textbf{Result}: Shifts earlier to avoid power drop-off zone (still optimized for this specific GT3 car).
+
+\section{Key Parameters}
+
+\begin{itemize}
+    \item \textbf{RPM Bucket Size}: 100 RPM (groups similar RPM levels)
+    \item \textbf{Minimum Time Delta}: 0.01 seconds (10 ms, filters noise)
+    \item \textbf{Maximum Time Delta}: 1.0 seconds (filters different laps)
+    \item \textbf{RPM Match Tolerance}: $\pm 200$ RPM (acceptable range for gear ratio lookup)
+    \item \textbf{Minimum Data Points per Gear}: 50 full-throttle samples
+    \item \textbf{Minimum Samples per Bucket}: 3 samples for statistical reliability
+    \item \textbf{Full Throttle Threshold}: $\geq 95\%$ throttle position
+    \item \textbf{Minimum Speed Threshold}: $> 0$ km/h (excludes stationary data)
+    \item \textbf{Adaptive Advantage Threshold} ($\theta_{\min}$) - GT3 Optimized:
+    \begin{itemize}
+        \item 0.10 (10\%) default for GT3 cars (typical high-revving behavior)
+        \item 0.05 (5\%) only when power drops significantly (when $A_{\text{top}} < 0.70 \times A_{\text{mid}}$)
+    \end{itemize}
+    \item \textbf{High-RPM Detection Threshold}: Top 20\% of RPM range
+    \item \textbf{Mid-RPM Reference Range}: Bottom 50\% of RPM range
+    \item \textbf{Redline Pull Detection}: Speed at 90\%+ RPM vs max speed (95\% threshold)
+    \item \textbf{Fallback Redline Shift Point}: 98\% of max observed RPM
+\end{itemize}
+
+\section{Fallback Strategy}
+
+If acceleration-based method fails (insufficient data, invalid gear ratio, etc.), use an intelligent maximum speed fallback that adapts to redline behavior.
+
+\subsection{Redline Detection}
+
+Check if the vehicle continues to accelerate strongly near redline:
+
+\begin{equation}
+\text{RPM}_{\text{top10\%}} = 0.90 \times \text{RPM}_{\max}
+\end{equation}
+
+\begin{equation}
+v_{\text{top}} = \text{avg}\left\{v_i \mid \text{RPM}_i \geq \text{RPM}_{\text{top10\%}}\right\}
+\end{equation}
+
+\begin{equation}
+\text{PullsToRedline} = \begin{cases}
+\text{true} & \text{if } v_{\text{top}} \geq 0.95 \times v_{\max} \\
+\text{false} & \text{otherwise}
+\end{cases}
+\end{equation}
+
+\subsection{Adaptive Fallback Shift Point}
+
+\begin{equation}
+\text{RPM}_{\text{optimal}} = \begin{cases}
+0.98 \times \text{RPM}_{\max} & \text{if PullsToRedline} \\
+\max \left\{ \text{RPM}_i \mid v_i \geq 0.99 \times v_{\max}, \text{gear} = N \right\} & \text{otherwise}
+\end{cases}
+\end{equation}
+
+This approach:
+\begin{itemize}
+    \item Shifts at 98\% of max RPM for cars that accelerate well to redline (e.g., high-revving GT3 cars)
+    \item Uses the highest RPM (not lowest) that achieves 99\% max speed for cars with traditional power curves
+    \item Prevents premature shifting by always preferring higher RPM ranges
+\end{itemize}
+
+\section{Benefits}
+
+\begin{enumerate}
+    \item \textbf{Physics-based}: Directly uses Newton's second law ($F = ma$)
+    \item \textbf{Vehicle-specific}: Adapts to each car's unique power curve
+    \item \textbf{Track-independent}: Works on any track configuration
+    \item \textbf{Self-optimizing}: More data yields better shift points
+    \item \textbf{Robust}: Graceful degradation with fallback strategy
+    \item \textbf{Optimal for lap times}: Maximizes acceleration = minimizes time
+    \item \textbf{GT3-optimized adaptive thresholds}:
+    \begin{itemize}
+        \item 10\% default for GT3 cars (prevents early shifting, maximizes redline usage)
+        \item 5\% fallback for GT3 cars with significant power drop-off (>30\% loss)
+    \end{itemize}
+    \item \textbf{High-quality data}: Filters out invalid telemetry (speed = 0, throttle < 95\%)
+    \item \textbf{Intelligent fallback}: Detects redline behavior and shifts accordingly
+    \item \textbf{Power curve analysis}: Automatically characterizes engine characteristics
+\end{enumerate}
+
+\section{Dynamic Audio Warning System}
+
+To provide real-time feedback, the system employs a dynamic beeping distance based on RPM rate of change:
+
+\subsection{RPM Rate Calculation}
+
+Track RPM history over a 200ms sliding window and calculate the rate of change:
+
+\begin{equation}
+\dot{\text{RPM}} = \frac{\text{RPM}_{\text{current}} - \text{RPM}_{\text{old}}}{t_{\text{current}} - t_{\text{old}}} \quad \text{(RPM/second)}
+\end{equation}
+
+\subsection{Dynamic Warning Distance}
+
+The beeping warning distance $d_{\text{beep}}$ adapts to acceleration intensity:
+
+\begin{equation}
+d_{\text{beep}} = \begin{cases}
+200 \text{ RPM} & \text{if } \dot{\text{RPM}} > 1500 \text{ RPM/s} \\
+150 \text{ RPM} & \text{if } \dot{\text{RPM}} > 1000 \text{ RPM/s} \\
+120 \text{ RPM} & \text{if } \dot{\text{RPM}} > 600 \text{ RPM/s} \\
+100 \text{ RPM} & \text{if } \dot{\text{RPM}} > 300 \text{ RPM/s} \\
+80 \text{ RPM} & \text{if } \dot{\text{RPM}} > 150 \text{ RPM/s} \\
+50 \text{ RPM} & \text{if } \dot{\text{RPM}} > 50 \text{ RPM/s} \\
+30 \text{ RPM} & \text{otherwise}
+\end{cases}
+\end{equation}
+
+Beeping begins when:
+\begin{equation}
+\text{RPM}_{\text{current}} \geq \text{RPM}_{\text{optimal}} - d_{\text{beep}}
+\end{equation}
+
+This approach provides earlier warning during rapid acceleration while avoiding premature beeping during steady-state driving.
+
+\section{Adaptive Learning Mode}
+
+The system supports continuous learning during normal driving:
+
+\begin{enumerate}
+    \item \textbf{Real-time data collection}: Collects telemetry at 20 Hz during full-throttle acceleration
+    \item \textbf{Automatic filtering}: Rejects data when throttle $< 95\%$ or speed $= 0$
+    \item \textbf{Periodic updates}: Recalculates optimal shift points every 10 seconds
+    \item \textbf{Live adaptation}: Shift point thresholds update dynamically as new data is collected
+    \item \textbf{Persistent learning}: Optionally saves learned configuration for future sessions
+\end{enumerate}
+
+This enables the system to continuously refine shift points as driving conditions and techniques evolve.
+
+\end{document}

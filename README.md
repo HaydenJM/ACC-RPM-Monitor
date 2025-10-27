@@ -9,29 +9,39 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 ## Features
 
 ### Audio Feedback System
-- **Dynamic Audio Alert**: Smooth volume ramping that adapts based on how fast your RPMs are climbing
-  - Volume gradually increases from quiet to full as RPM approaches shift point
-  - Prevents audio at low RPMs (hard-coded 6000 RPM minimum threshold)
-  - Prevents late warnings in lower gears where RPMs climb quickly
-- **Gear-Based Frequency**: Each gear has unique audio pitch for better situational awareness
-  - Gear 1: 500 Hz
-  - Gear 2: 600 Hz
-  - Gear 3: 700 Hz
-  - Gear 4+: Increases by 100 Hz per gear
-- **Smooth and Natural**: Steady continuous tone with volume control for less distracting feedback
+- **Mode-Specific Audio Strategies**:
+  - **Standard/Adaptive Mode**: Progressive beeping system
+    - Slow beeps (500ms) when far from threshold
+    - Accelerates progressively as RPM approaches shift point
+    - Fast beeps (50ms) when very close
+    - Solid tone at optimal shift RPM
+    - Intuitive rhythm that naturally speeds up
+  - **Performance Learning Mode**: Pitch-based guidance
+    - **High pitch**: Shifting too late → shift earlier
+    - **Normal pitch**: Shifting at optimal point (±175 RPM window)
+    - **Low pitch**: Shifting too early → shift later
+    - Solid tone for cleaner guidance
+- **Dynamic Warning Distance**: Adapts based on RPM climb rate (50-200 RPM before threshold)
+- **Gear-Based Frequency**: Each gear has unique audio pitch for situational awareness
+  - Gear 1: 500 Hz | Gear 2: 600 Hz | Gear 3: 700 Hz | Gear 4+: +100 Hz per gear
+- **Hard-Coded 6000 RPM Minimum**: Never plays audio below 6000 RPM (prevents low-RPM noise)
 
 ### Main Menu System
 - **Menu-Driven Interface**: Clear workflow options for all tasks
   - Create Auto Configuration (Data Collection)
   - Create/Edit Manual Configuration
   - Select & Use Configuration (Start Monitoring)
-  - Change Vehicle
+  - Change Vehicle (with automatic detection)
   - Open Config Folder (View reports and power curves)
   - Exit application
 - **Returns to Menu**: All workflows return to main menu when complete
 
-### Intelligent Shift Detection
-- **Automatic Vehicle Detection**: Identifies your current car from ACC and loads the right config
+### Intelligent Shift Detection & Performance Learning
+- **Automatic Vehicle Detection**:
+  - Detects current car from ACC shared memory at startup
+  - Shows detected vehicle in vehicle selection menu with [detected] marker
+  - One-click auto-select (press [A]) to switch to detected vehicle
+  - Reads from ACC Static Memory (offset 68, verified from ACC SDK)
 - **Dual Configuration Modes**:
   - **Manual Mode**: Define your own custom RPM shift points (fully editable)
   - **Auto Mode**: Uses learned optimal shift points (read-only)
@@ -61,6 +71,44 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 - **Per-Vehicle Configuration**: Separate configs for each car, both manual and auto-generated
 - **Per-Gear Customization**: Configure different shift points for each gear (1-8)
 
+### Performance Learning Mode (NEW in v3.0.0+)
+- **Machine Learning Shift Optimization**: Learns optimal shift points from your actual lap performance
+  - Automatically detects every gear shift you make
+  - Correlates shift RPMs with lap times and off-track events
+  - Uses weighted algorithm: 40% physics-based + 60% performance-based
+  - Adaptive confidence scoring (increases with more laps)
+- **Intelligent Shift Detection**:
+  - Tracks upshifts during acceleration (≥30% throttle, >3000 RPM)
+  - Filters downshifts while braking
+  - Records shift context: RPM, speed, throttle, track position
+- **Lap Performance Tracking**:
+  - Monitors lap times from ACC telemetry
+  - Tracks off-track events and duration
+  - Validates laps (ACC's validated_laps + sanity checks)
+  - Only uses valid laps for learning
+- **Shift Pattern Analysis**:
+  - Groups shifts into 200 RPM buckets per gear
+  - Calculates average lap time for each RPM range
+  - Identifies optimal shift points based on performance
+  - Composite scoring: lap time + (off-track time × 1000ms penalty)
+- **Real-Time Guidance**:
+  - Shows learning status (laps, shifts, confidence, data quality)
+  - Live recommendations: "Try shifting 200 RPM earlier for better performance"
+  - Pitch-based audio feedback (high=earlier, low=later, normal=optimal)
+- **Comprehensive Reports**:
+  - Per-gear shift statistics (min/max/avg RPM)
+  - RPM bucket performance breakdown
+  - Physics vs Performance comparison
+  - Saved to `%LocalAppData%/ACCRPMMonitor/shift_analysis/`
+- **Controls**:
+  - ESC: Return to main menu (prompts to save)
+  - F2: Save current learned shift points
+  - F3: Generate performance report during session
+- **Data Quality Filters**:
+  - Only collects data when RPMs rising ≥100 RPM/sec (prevents corner throttle contamination)
+  - Requires ≥85% throttle for valid acceleration data
+  - Minimum 5 valid laps for reliable recommendations
+
 ### Telemetry & Performance
 - **Real-Time Telemetry**: Direct shared memory integration with ACC for instant feedback
 - **RPM Rate Tracking**: Monitors RPM acceleration over 200ms window
@@ -86,10 +134,14 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 ### Using Configuration (Monitoring Mode)
 1. **Select Workflow**: Choose "Select & Use Configuration" from main menu
 2. **Choose Mode**: Pick Manual or Auto configuration
-3. **Start ACC**: Launch ACC and join a session
-4. **Monitor**: Reads current gear and RPM data in real-time (~20Hz update rate)
-5. **Alert**: Provides smooth volume-ramping audio feedback
-6. **Exit**: Press ESC to return to main menu
+3. **Select Monitor Type**:
+   - **Standard Mode**: Fixed shift points with progressive beeping
+   - **Adaptive Mode**: Continuously learns shift points from acceleration data
+   - **Performance Learning Mode**: Machine learning optimization from lap times
+4. **Start ACC**: Launch ACC and join a session
+5. **Monitor**: Reads current gear and RPM data in real-time (~20Hz update rate)
+6. **Alert**: Provides mode-specific audio feedback (progressive beeping or pitch guidance)
+7. **Exit**: Press ESC to return to main menu
 
 ## Requirements
 
@@ -157,5 +209,5 @@ For issues or feature requests, please refer to the project repository.
 
 ---
 
-**Current Version**: v2.1.0
+**Current Version**: v3.1.0
 **Last Updated**: October 2025
