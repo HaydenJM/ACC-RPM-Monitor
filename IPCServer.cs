@@ -256,13 +256,24 @@ public class IPCClient : IDisposable
             {
                 try
                 {
-                    var line = await reader.ReadLineAsync(cancellationToken);
-                    if (string.IsNullOrEmpty(line)) break;
-
-                    var data = TelemetryData.FromJson(line);
-                    if (data != null)
+                    // Read without passing cancellation token to avoid OperationCanceledException
+                    // Check for cancellation separately instead
+                    var readTask = reader.ReadLineAsync();
+                    if (await Task.WhenAny(readTask, Task.Delay(Timeout.Infinite, cancellationToken)) == readTask)
                     {
-                        TelemetryReceived?.Invoke(this, data);
+                        var line = await readTask;
+                        if (string.IsNullOrEmpty(line)) break;
+
+                        var data = TelemetryData.FromJson(line);
+                        if (data != null)
+                        {
+                            TelemetryReceived?.Invoke(this, data);
+                        }
+                    }
+                    else
+                    {
+                        // Cancellation token was triggered
+                        break;
                     }
                 }
                 catch (OperationCanceledException)
