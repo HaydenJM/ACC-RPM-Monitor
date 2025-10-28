@@ -9,6 +9,7 @@ public class PatternShift
     private readonly List<ShiftEvent> _shiftHistory = new();
     private readonly List<LapPerformance> _lapHistory = new();
     private readonly Dictionary<int, List<ShiftPerformanceData>> _shiftPerformanceByGear = new();
+    private int _maxGear = 6; // Default to 6 gears, can be overridden
 
     // Current state tracking
     private int _lastGear = 0;
@@ -26,6 +27,14 @@ public class PatternShift
     // Shift detection parameters
     private const int MinRPMForShift = 3000; // Ignore shifts below this RPM (downshifts while braking)
     private const float MinThrottleForUpshift = 0.3f; // Must be accelerating for upshift to count
+
+    /// <summary>
+    /// Sets the maximum gear for this vehicle.
+    /// </summary>
+    public void SetMaxGear(int maxGear)
+    {
+        _maxGear = maxGear > 0 ? maxGear : 6;
+    }
 
     /// <summary>
     /// Updates the analyzer with current telemetry data. Call this every frame (~20Hz).
@@ -191,7 +200,7 @@ public class PatternShift
             return optimalShiftPoints;
 
         // Analyze each gear
-        for (int gear = 1; gear <= 6; gear++)
+        for (int gear = 1; gear <= _maxGear; gear++)
         {
             if (!_shiftPerformanceByGear.ContainsKey(gear))
                 continue;

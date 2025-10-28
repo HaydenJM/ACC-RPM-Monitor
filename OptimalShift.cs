@@ -429,8 +429,8 @@ public class OptimalShift
     public int GetDataPointCountForGear(int gear) =>
         _dataPoints.Count(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold);
 
-    // Generates a detailed data collection report for gears 1-6
-    public DataReport GenerateDetailedReport(string vehicleName)
+    // Generates a detailed data collection report for gears 1 to maxGear
+    public DataReport GenerateDetailedReport(string vehicleName, int maxGear = 6)
     {
         var report = new DataReport
         {
@@ -443,8 +443,8 @@ public class OptimalShift
         var gearAnalyses = new List<DataReport.GearAnalysis>();
         int successfulGears = 0;
 
-        // Analyze gears 1-6 specifically
-        for (int gear = 1; gear <= 6; gear++)
+        // Analyze gears 1 to maxGear
+        for (int gear = 1; gear <= maxGear; gear++)
         {
             var analysis = AnalyzeGear(gear);
             gearAnalyses.Add(analysis);
@@ -456,18 +456,18 @@ public class OptimalShift
 
         report.GearAnalyses = gearAnalyses;
 
-        // Determine overall success: need all gears 1-6 with sufficient confidence
-        report.OverallSuccess = successfulGears == 6;
+        // Determine overall success: need all gears 1 to maxGear with sufficient confidence
+        report.OverallSuccess = successfulGears == maxGear;
 
         // Generate summary
         if (report.OverallSuccess)
         {
-            report.SessionSummary = $"SUCCESS: All 6 gears have optimal shift points detected with sufficient confidence.";
+            report.SessionSummary = $"SUCCESS: All {maxGear} gears have optimal shift points detected with sufficient confidence.";
         }
         else
         {
-            int failedGears = 6 - successfulGears;
-            report.SessionSummary = $"INCOMPLETE: {successfulGears}/6 gears successfully analyzed. {failedGears} gear(s) need more data.";
+            int failedGears = maxGear - successfulGears;
+            report.SessionSummary = $"INCOMPLETE: {successfulGears}/{maxGear} gears successfully analyzed. {failedGears} gear(s) need more data.";
         }
 
         // Generate recommendations

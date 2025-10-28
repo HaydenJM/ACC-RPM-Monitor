@@ -30,12 +30,14 @@ public static class AutoConfigFlow
 
         var shiftAnalyzer = new OptimalShift();
         using var accMemory = new ACCSharedMemorySimple();
+        var currentConfig = configManager.LoadConfig();
+        int maxGear = currentConfig.MaxGear > 0 ? currentConfig.MaxGear : 6; // Default to 6 if not set
 
         Console.Clear();
         Console.WriteLine("=".PadRight(80, '='));
         Console.WriteLine("AUTO CONFIGURATION - DATA COLLECTION");
         Console.WriteLine("=".PadRight(80, '='));
-        Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
+        Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName} (Max Gear: {maxGear})");
         Console.WriteLine();
         Console.WriteLine("Press F1 to START/STOP collection | Press ESC to abort\n");
 
@@ -84,7 +86,7 @@ public static class AutoConfigFlow
                         Thread.Sleep(1000);
 
                         // Analyze and show results
-                        bool success = AnalyzeAndSaveData(shiftAnalyzer, configManager);
+                        bool success = AnalyzeAndSaveData(shiftAnalyzer, configManager, maxGear);
 
                         if (success)
                         {
@@ -179,8 +181,8 @@ public static class AutoConfigFlow
 
             int displayGear = currentGear - 1;
 
-            // Collect data if enabled and driving (only gears 1-6)
-            if (collectingData && isDriving && displayGear >= 1 && displayGear <= 6)
+            // Collect data if enabled and driving (gears 1 to maxGear)
+            if (collectingData && isDriving && displayGear >= 1 && displayGear <= maxGear)
             {
                 // Use actual throttle and speed from telemetry
                 // AddDataPoint will filter out invalid data (throttle < 85% or speed <= 5 km/h)
@@ -188,7 +190,7 @@ public static class AutoConfigFlow
             }
 
             // Display current telemetry with diagnostics
-            bool isCollectingNow = (collectingData && throttle >= 0.85f && speed > 5f && displayGear >= 1 && displayGear <= 6);
+            bool isCollectingNow = (collectingData && throttle >= 0.85f && speed > 5f && displayGear >= 1 && displayGear <= maxGear);
             string collectStatus;
 
             if (!collectingData)
@@ -199,9 +201,9 @@ public static class AutoConfigFlow
             {
                 collectStatus = $"✓ Collecting data - Throttle: {throttle*100:F0}%, Speed: {speed:F1} km/h";
             }
-            else if (displayGear < 1 || displayGear > 6)
+            else if (displayGear < 1 || displayGear > maxGear)
             {
-                collectStatus = $"Not collecting (gear {displayGear} - need gears 1-6)";
+                collectStatus = $"Not collecting (gear {displayGear} - need gears 1-{maxGear})";
             }
             else if (throttle < 0.85f)
             {
@@ -235,7 +237,7 @@ public static class AutoConfigFlow
         }
     }
 
-    private static bool AnalyzeAndSaveData(OptimalShift analyzer, ConfigMan configManager)
+    private static bool AnalyzeAndSaveData(OptimalShift analyzer, ConfigMan configManager, int maxGear)
     {
         Console.Clear();
         Console.WriteLine("=".PadRight(80, '='));
@@ -244,7 +246,7 @@ public static class AutoConfigFlow
         Console.WriteLine();
 
         // Generate detailed report
-        var report = analyzer.GenerateDetailedReport(configManager.CurrentVehicleName);
+        var report = analyzer.GenerateDetailedReport(configManager.CurrentVehicleName, maxGear);
 
         // Save reports to vehicle-specific directory
         string reportsDir = configManager.GetVehicleDataDirectory();

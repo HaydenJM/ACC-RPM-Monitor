@@ -8,6 +8,7 @@ public class PerformanceEng
 {
     private readonly PatternShift _shiftAnalyzer;
     private readonly OptimalShift _accelerationAnalyzer;
+    private int _maxGear = 6; // Default to 6 gears (GT3), can be set via property
 
     // Learning parameters
     private const float AccelerationWeight = 0.4f; // Weight for physics-based acceleration analysis
@@ -18,10 +19,19 @@ public class PerformanceEng
     // Adaptive learning rate (starts conservative, increases with data confidence)
     private float _learningRate = 0.2f;
 
-    public PerformanceEng(PatternShift shiftAnalyzer, OptimalShift accelerationAnalyzer)
+    public PerformanceEng(PatternShift shiftAnalyzer, OptimalShift accelerationAnalyzer, int maxGear = 6)
     {
         _shiftAnalyzer = shiftAnalyzer;
         _accelerationAnalyzer = accelerationAnalyzer;
+        _maxGear = maxGear > 0 ? maxGear : 6;
+    }
+
+    /// <summary>
+    /// Sets the maximum gear for this vehicle.
+    /// </summary>
+    public void SetMaxGear(int maxGear)
+    {
+        _maxGear = maxGear > 0 ? maxGear : 6;
     }
 
     /// <summary>
@@ -41,7 +51,7 @@ public class PerformanceEng
         UpdateLearningRate();
 
         // Combine both sources using weighted average
-        for (int gear = 1; gear <= 6; gear++)
+        for (int gear = 1; gear <= _maxGear; gear++)
         {
             bool hasPhysicsData = physicsBasedPoints.ContainsKey(gear);
             bool hasPerformanceData = performanceBasedPoints.ContainsKey(gear);
@@ -84,7 +94,7 @@ public class PerformanceEng
     {
         var points = new Dictionary<int, int>();
 
-        for (int gear = 1; gear <= 6; gear++)
+        for (int gear = 1; gear <= _maxGear; gear++)
         {
             var optimalRPM = _accelerationAnalyzer.CalculateOptimalUpshiftRPM(gear);
             if (optimalRPM.HasValue)
@@ -126,7 +136,7 @@ public class PerformanceEng
         var performancePoints = _shiftAnalyzer.AnalyzeOptimalShiftPoints(MinLapsForLearning);
         var blendedPoints = GenerateOptimalShiftPoints();
 
-        for (int gear = 1; gear <= 6; gear++)
+        for (int gear = 1; gear <= _maxGear; gear++)
         {
             var gearReport = new GearLearningReport
             {
