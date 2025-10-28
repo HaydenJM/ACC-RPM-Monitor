@@ -1,8 +1,10 @@
 using ACCRPMMonitor;
 using System.Runtime.InteropServices;
 
-// Check for CLI arguments
-var cliArgs = Environment.GetCommandLineArgs();
+try
+{
+    // Check for CLI arguments
+    var cliArgs = Environment.GetCommandLineArgs();
 bool isHeadless = cliArgs.Contains("--headless");
 bool isViewer = cliArgs.Contains("--viewer");
 string? serverAddress = null;
@@ -123,6 +125,28 @@ while (!exitApp)
 
 Console.Clear();
 Console.WriteLine("Goodbye!");
+}
+catch (Exception ex)
+{
+    Console.Clear();
+    Console.WriteLine("╔════════════════════════════════════════════════════════════════╗");
+    Console.WriteLine("║                    APPLICATION ERROR                           ║");
+    Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
+    Console.WriteLine();
+    Console.WriteLine($"Error: {ex.Message}");
+    Console.WriteLine();
+    Console.WriteLine("Stack Trace:");
+    Console.WriteLine(ex.StackTrace);
+    Console.WriteLine();
+    Console.WriteLine("Troubleshooting:");
+    Console.WriteLine("  1. Make sure you extracted all files from the archive");
+    Console.WriteLine("  2. Check that you have the .NET 8.0 runtime installed");
+    Console.WriteLine("  3. Make sure ACC is not running when first loading configs");
+    Console.WriteLine("  4. Try running from a folder without special characters in path");
+    Console.WriteLine();
+    Console.WriteLine("Press any key to exit...");
+    Console.ReadKey();
+}
 
 // Opens the data folder in File Explorer
 static void OpenConfigFolder()
