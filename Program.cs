@@ -1,10 +1,23 @@
 using ACCRPMMonitor;
+using System.Runtime.InteropServices;
 
-// Set console window size (82 = slightly more than 80-char menu title)
+// Set console window size to fixed dimensions (82x40)
+// Buffer size matches window size to prevent scrolling and resizing
 try
 {
-    Console.SetWindowSize(82, 60);
-    Console.SetBufferSize(82, 60);
+    const int width = 82;
+    const int height = 40;
+
+    Console.SetWindowSize(width, height);
+    Console.SetBufferSize(width, height);
+
+    // Lock the window size on Windows only (works with legacy conhost.exe, not Windows Terminal)
+    // Note: Windows Terminal ignores Win32 window style changes
+    // To use with locked window, run with conhost.exe instead of Windows Terminal
+    if (OperatingSystem.IsWindows())
+    {
+        ConsoleWindowLocker.LockWindowSize();
+    }
 }
 catch (Exception)
 {
@@ -73,6 +86,10 @@ while (!exitApp)
             OpenConfigFolder();
             break;
 
+        case MainMenuChoice.Help:
+            ConfigUI.ShowHelpMenu();
+            break;
+
         case MainMenuChoice.Exit:
             exitApp = true;
             break;
@@ -82,34 +99,33 @@ while (!exitApp)
 Console.Clear();
 Console.WriteLine("Goodbye!");
 
-// Opens the config folder in File Explorer
+// Opens the data folder in File Explorer
 static void OpenConfigFolder()
 {
-    string configPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ACCRPMMonitor"
-    );
+    // Use ./data directory next to the application
+    string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+    string dataPath = Path.Combine(appDirectory, "data");
 
     // Ensure the directory exists
-    Directory.CreateDirectory(configPath);
+    Directory.CreateDirectory(dataPath);
 
     try
     {
         // Open the folder in File Explorer
-        System.Diagnostics.Process.Start("explorer.exe", configPath);
+        System.Diagnostics.Process.Start("explorer.exe", dataPath);
 
         Console.Clear();
-        Console.WriteLine("=== Open Config Folder ===\n");
-        Console.WriteLine($"Opening: {configPath}\n");
+        Console.WriteLine("=== Open Data Folder ===\n");
+        Console.WriteLine($"Opening: {dataPath}\n");
         Console.WriteLine("Press any key to continue...");
         Console.ReadKey();
     }
     catch (Exception ex)
     {
         Console.Clear();
-        Console.WriteLine("=== Open Config Folder ===\n");
+        Console.WriteLine("=== Open Data Folder ===\n");
         Console.WriteLine($"Error opening folder: {ex.Message}\n");
-        Console.WriteLine($"Path: {configPath}\n");
+        Console.WriteLine($"Path: {dataPath}\n");
         Console.WriteLine("Press any key to continue...");
         Console.ReadKey();
     }
@@ -125,7 +141,7 @@ static void RunMonitor(ConfigManager configManager, GearRPMConfig config)
     Console.WriteLine("Select monitoring mode:");
     Console.WriteLine("  1. Standard Mode - Use fixed shift points");
     Console.WriteLine("  2. Adaptive Mode - Continuously learn and update shift points");
-    Console.WriteLine("  3. Performance Learning Mode - AI-driven shift optimization based on lap times");
+    Console.WriteLine("  3. Performance Learning Mode - Machine learning-based shift optimization using lap time correlation");
     Console.WriteLine();
     Console.Write("Choice (1-3): ");
 
@@ -632,7 +648,8 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, GearRPMCo
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Performance Learning Mode ===");
     Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
-    Console.WriteLine("This mode learns optimal shift points from your lap performance!");
+    Console.WriteLine("This mode uses machine learning to optimize shift points based on lap performance.");
+    Console.WriteLine("The system builds confidence through statistical analysis of lap times vs shift patterns.");
     Console.WriteLine();
     Console.WriteLine("Controls:");
     Console.WriteLine("  ESC - Return to main menu (prompts to save)");
@@ -851,9 +868,10 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, GearRPMCo
             Console.WriteLine();
             Console.WriteLine("─── LAP DEBUG INFO ────────────────────────────────────────────");
             Console.WriteLine($"Completed Laps:  {lapTiming.CompletedLaps}                              ");
-            Console.WriteLine($"Validated Laps:  {lapTiming.ValidatedLaps}                              ");
-            Console.WriteLine($"Last Lap Time:   {lapTiming.LastLapTime}                                ");
-            Console.WriteLine($"Was Last Valid:  {lapTiming.WasLastLapValid()}                          ");
+            Console.WriteLine($"Current Time:    {lapTiming.CurrentLapTime}                             ");
+            Console.WriteLine($"Last Lap Time:   {lapTiming.LastLapTime} ({lapTiming.LastLapTimeMs}ms)  ");
+            Console.WriteLine($"Best Lap Time:   {lapTiming.BestLapTime}                                ");
+            Console.WriteLine($"Is Valid Lap:    {lapTiming.IsCurrentLapValid} (current lap in progress)");
         }
 
         // Show recommendation for current gear

@@ -29,16 +29,30 @@ public static class ConfigUI
             Console.WriteLine("  [4] Change Vehicle");
             Console.WriteLine("      Switch to a different vehicle");
             Console.WriteLine();
-            Console.WriteLine("  [5] Open Config Folder");
-            Console.WriteLine("      Open the configuration and reports folder in File Explorer");
+            Console.WriteLine("  [5] Open Data Folder");
+            Console.WriteLine("      Open the data folder (configs, reports, graphs) in File Explorer");
             Console.WriteLine();
-            Console.WriteLine("  [6] Exit");
+            Console.WriteLine("  [6] Help");
+            Console.WriteLine("      Learn how to use the application");
+            Console.WriteLine();
+            Console.WriteLine("  [7] Exit");
+            Console.WriteLine();
+            Console.WriteLine("Press ESC to exit application");
             Console.WriteLine();
 
-            Console.Write("Select option (1-6): ");
+            Console.Write("Select option (1-7): ");
             string? input = Console.ReadLine();
 
-            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 6)
+            if (string.IsNullOrWhiteSpace(input))
+                continue;
+
+            if (input.Equals("ESC", StringComparison.OrdinalIgnoreCase))
+            {
+                return MainMenuChoice.Exit;
+            }
+
+            // Check for number keys
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 7)
             {
                 return (MainMenuChoice)choice;
             }
@@ -93,16 +107,18 @@ public static class ConfigUI
             Console.WriteLine($"  [C] Continue with '{configManager.CurrentVehicleName}'");
 
             Console.Write("\nSelect option: ");
-            string? input = Console.ReadLine()?.ToUpper();
+            string? input = Console.ReadLine();
 
             if (string.IsNullOrWhiteSpace(input))
                 continue;
 
-            if (input == "C")
+            char inputChar = char.ToUpper(input[0]);
+
+            if (inputChar == 'C')
             {
                 return;
             }
-            else if (input == "A" && !string.IsNullOrEmpty(detectedVehicle))
+            else if (inputChar == 'A' && !string.IsNullOrEmpty(detectedVehicle))
             {
                 // Auto-select detected vehicle
                 configManager.SetVehicle(detectedVehicle);
@@ -110,15 +126,15 @@ public static class ConfigUI
                 Thread.Sleep(1000);
                 return;
             }
-            else if (input == "N")
+            else if (inputChar == 'N')
             {
                 CreateNewVehicle(configManager);
             }
-            else if (input == "D" && vehicles.Count > 0)
+            else if (inputChar == 'D' && vehicles.Count > 0)
             {
                 DeleteVehicle(configManager, vehicles);
             }
-            else if (int.TryParse(input, out int choice) && choice >= 1 && choice <= vehicles.Count)
+            else if (char.IsDigit(inputChar) && int.TryParse(inputChar.ToString(), out int choice) && choice >= 1 && choice <= vehicles.Count)
             {
                 configManager.SetVehicle(vehicles[choice - 1]);
                 Console.WriteLine($"\nSwitched to vehicle: {vehicles[choice - 1]}");
@@ -158,6 +174,9 @@ public static class ConfigUI
 
             Console.Write("\nSelect mode (1-2): ");
             string? input = Console.ReadLine();
+
+            if (string.IsNullOrWhiteSpace(input))
+                continue;
 
             if (int.TryParse(input, out int choice))
             {
@@ -218,6 +237,101 @@ public static class ConfigUI
         configManager.SaveConfig(config);
         Console.WriteLine($"\nCreated new vehicle configuration: {vehicleName}");
         Thread.Sleep(1500);
+    }
+
+    // Displays help and usage information
+    public static void ShowHelpMenu()
+    {
+        while (true)
+        {
+            Console.Clear();
+            Console.WriteLine("=".PadRight(80, '='));
+            Console.WriteLine("ACC RPM MONITOR - HELP & USAGE GUIDE");
+            Console.WriteLine("=".PadRight(80, '='));
+            Console.WriteLine();
+            Console.WriteLine("QUICK START");
+            Console.WriteLine("-----------");
+            Console.WriteLine("1. Create Auto Configuration: Perform a hotlap to learn optimal shift points");
+            Console.WriteLine("2. Select & Use Configuration: Choose your config and start monitoring");
+            Console.WriteLine("3. Listen to audio feedback while driving");
+            Console.WriteLine("4. Press ESC to return to main menu");
+            Console.WriteLine();
+            Console.WriteLine("WORKFLOW OVERVIEW");
+            Console.WriteLine("-----------------");
+            Console.WriteLine();
+            Console.WriteLine("[1] CREATE AUTO CONFIGURATION");
+            Console.WriteLine("    - Best for learning optimal shift points");
+            Console.WriteLine("    - Collect data during a hotlap session (Monza or Paul Ricard recommended)");
+            Console.WriteLine("    - Press F1 to start data collection");
+            Console.WriteLine("    - Drive smoothly at high throttle through gears 1-5");
+            Console.WriteLine("    - Press F1 to stop when finished");
+            Console.WriteLine("    - Review the detailed report showing confidence for each gear");
+            Console.WriteLine("    - Power curve graphs are automatically generated");
+            Console.WriteLine();
+            Console.WriteLine("[2] CREATE/EDIT MANUAL CONFIGURATION");
+            Console.WriteLine("    - Set custom shift points for each gear (1-8)");
+            Console.WriteLine("    - Edit any gear individually");
+            Console.WriteLine("    - Save your configuration");
+            Console.WriteLine();
+            Console.WriteLine("[3] SELECT & USE CONFIGURATION (START MONITORING)");
+            Console.WriteLine("    - Choose between Manual or Auto configuration");
+            Console.WriteLine("    - Select monitoring mode:");
+            Console.WriteLine("      • Standard: Fixed shift points with progressive beeping");
+            Console.WriteLine("      • Adaptive: Continuously learns from your driving");
+            Console.WriteLine("      • Performance Learning: Machine learning optimization from lap times");
+            Console.WriteLine();
+            Console.WriteLine("AUDIO FEEDBACK GUIDE");
+            Console.WriteLine("--------------------");
+            Console.WriteLine();
+            Console.WriteLine("STANDARD/ADAPTIVE MODE:");
+            Console.WriteLine("  - Slow beeps (500ms): Far from shift point");
+            Console.WriteLine("  - Beeps accelerate: Getting closer to shift point");
+            Console.WriteLine("  - Fast beeps (50ms): Very close to shift point");
+            Console.WriteLine("  - Solid tone: At or just past optimal shift point");
+            Console.WriteLine("  - No audio below 6000 RPM (prevents unnecessary noise)");
+            Console.WriteLine();
+            Console.WriteLine("PERFORMANCE LEARNING MODE:");
+            Console.WriteLine("  - High pitch: Shift earlier (you're shifting too late)");
+            Console.WriteLine("  - Normal pitch: Shifting at optimal point (±175 RPM)");
+            Console.WriteLine("  - Low pitch: Shift later (you're shifting too early)");
+            Console.WriteLine("  - Each gear has distinct frequency for better awareness");
+            Console.WriteLine();
+            Console.WriteLine("CONFIGURATION STORAGE");
+            Console.WriteLine("---------------------");
+            Console.WriteLine("All configurations, reports, and power curve graphs are stored in:");
+            Console.WriteLine("%LocalAppData%\\ACCRPMMonitor\\");
+            Console.WriteLine();
+            Console.WriteLine("Use [5] Open Data Folder from main menu for quick access.");
+            Console.WriteLine();
+            Console.WriteLine("KEY CONTROLS");
+            Console.WriteLine("-------------");
+            Console.WriteLine("F1 (during data collection): Start/Stop data collection");
+            Console.WriteLine("F2 (during Performance Learning): Save learned shift points");
+            Console.WriteLine("F3 (during Performance Learning): Generate performance report");
+            Console.WriteLine("ESC: Return to main menu or exit application");
+            Console.WriteLine();
+            Console.WriteLine("TROUBLESHOOTING");
+            Console.WriteLine("---------------");
+            Console.WriteLine();
+            Console.WriteLine("No vehicle detected?");
+            Console.WriteLine("  - Make sure ACC is running and you're in a session (not in menus)");
+            Console.WriteLine("  - The app detects your vehicle automatically");
+            Console.WriteLine();
+            Console.WriteLine("Data collection not working?");
+            Console.WriteLine("  - Ensure you're on track (not in pits or paddock)");
+            Console.WriteLine("  - Hold at least 85% throttle");
+            Console.WriteLine("  - Travel faster than 5 km/h");
+            Console.WriteLine("  - Data must be collected sequentially for gears 1-5");
+            Console.WriteLine();
+            Console.WriteLine("No audio feedback?");
+            Console.WriteLine("  - Check Windows volume and application volume");
+            Console.WriteLine("  - Audio only plays when RPM is above 6000");
+            Console.WriteLine("  - Ensure audio device is connected and working");
+            Console.WriteLine();
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
+            return;
+        }
     }
 
     // Deletes a vehicle config
@@ -298,7 +412,7 @@ public static class ConfigUI
             Console.Write("\nSelect gear to edit (0-9): ");
             string? input = Console.ReadLine();
 
-            if (!int.TryParse(input, out int choice))
+            if (string.IsNullOrWhiteSpace(input) || !int.TryParse(input, out int choice))
                 continue;
 
             if (choice == 0)
@@ -356,5 +470,6 @@ public enum MainMenuChoice
     SelectAndUseConfig = 3,
     ChangeVehicle = 4,
     OpenConfigFolder = 5,
-    Exit = 6
+    Help = 6,
+    Exit = 7
 }

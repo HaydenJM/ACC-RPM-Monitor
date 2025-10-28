@@ -33,8 +33,10 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
   - Select & Use Configuration (Start Monitoring)
   - Change Vehicle (with automatic detection)
   - Open Config Folder (View reports and power curves)
+  - Help (In-app usage guide and troubleshooting)
   - Exit application
 - **Returns to Menu**: All workflows return to main menu when complete
+- **In-App Help**: Access comprehensive help menu directly from main menu without needing external documentation
 
 ### Intelligent Shift Detection & Performance Learning
 - **Automatic Vehicle Detection**:
@@ -209,5 +211,5 @@ For issues or feature requests, please refer to the project repository.
 
 ---
 
-**Current Version**: v3.1.0
+**Current Version**: v3.2.0
 **Last Updated**: October 2025

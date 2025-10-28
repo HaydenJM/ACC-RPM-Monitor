@@ -5,6 +5,29 @@ All notable changes to ACC RPM Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2025-10-27
+
+### Added
+
+- **Help Menu**: Comprehensive in-app help system accessible from main menu [6]
+  - Quick start guide for new users
+  - Detailed workflow overview for each feature
+  - Audio feedback guide explaining beeping patterns and pitch guidance
+  - Configuration storage information
+  - Key controls reference
+  - Troubleshooting section with common issues and solutions
+  - No external documentation required for basic usage
+
+### Changed
+
+- **Main Menu Structure**: Added Help menu option
+  - New menu layout: 7 options (was 6)
+  - Help is option [6]
+  - Exit is now option [7]
+  - Help accessible from anywhere via main menu
+
+---
+
 ## [1.0.0] - 2025-10-07
 
 ### Added
@@ -592,9 +615,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.1.1] - 2025-10-26
+
+### Fixed - Qualifying Lap Detection
+
+- **Critical Fix: Qualifying Lap Validation**: Fixed issue where valid qualifying laps were not being detected or counted
+  - Implemented proper `is_valid_lap` field reading from ACC shared memory (offset 1408)
+  - Field indicates if the current lap in progress is valid (works reliably in practice/qualifying)
+  - Added state tracking in `ShiftPatternAnalyzer` to capture validity before lap completion
+  - `_wasCurrentLapValid` now tracks lap validity throughout the lap
+  - Validity status captured just before lap completes and passed to `CompleteLap()`
+  - Works correctly in qualifying sessions where lap validation is consistent
+
+### Changed
+
+- **LapTimingData Structure Updated**:
+  - Removed: `ValidatedLaps`, `LastLapWasInvalidated` (unreliable heuristics)
+  - Added: `IsCurrentLapValid` (bool) - direct read from ACC shared memory
+  - Added: `LastLapTimeMs` (int) - last lap time in milliseconds for direct comparison
+  - Added: `SessionType` (int) - session type for context-aware validation
+  - Simplified to focus on current lap validity rather than historical counts
+
+- **ReadLapTiming() Method Redesigned**:
+  - Reads from correct ACC graphics memory offsets based on SPageFileGraphic structure
+  - Wide strings read as 30 bytes (15 wchar_t characters) instead of 32 bytes
+  - `is_valid_lap` read directly from offset 1408
+  - Increased memory view size to 2048 bytes to safely access later offsets
+  - Removed heuristic-based lap validation logic
+
+- **ShiftPatternAnalyzer.CompleteLap() Enhanced**:
+  - Now takes `bool wasLapValid` parameter from tracked state
+  - Uses ACC's `is_valid_lap` field as primary validation (tracked from previous frame)
+  - Secondary validation: lap time sanity checks (> 0ms, < max value, < 2sec off-track)
+  - Both validations must pass for lap to be considered valid
+  - Added documentation noting reliability in practice/qualifying vs races
+
+### Technical Implementation
+
+- **Lap Validity State Tracking**:
+  - Added `_wasCurrentLapValid` field to `ShiftPatternAnalyzer`
+  - Updated every frame with current lap's validity status
+  - Captured state used when lap completes (before it resets for next lap)
+  - Ensures correct validity attribution to completed laps
+
+- **ACC Graphics Memory Structure** (from ACC SDK):
+  ```
+  Offset 12:   current_time_str (wchar_t[15] = 30 bytes)
+  Offset 42:   last_time_str (wchar_t[15] = 30 bytes)
+  Offset 72:   best_time_str (wchar_t[15] = 30 bytes)
+  Offset 132:  completed_lap (i32)
+  Offset 144:  last_time (i32, milliseconds)
+  ...
+  Offset 1408: is_valid_lap (i32, boolean flag)
+  ```
+
+- **Debug Output Added**:
+  - Shows `IsCurrentLapValid` status in Performance Learning Mode
+  - Displays last lap time in both string and millisecond formats
+  - Shows current lap time for live tracking
+  - Helps diagnose lap validation issues during sessions
+
+### Notes
+
+- The `is_valid_lap` field is documented to be reliable in practice/qualifying sessions
+- In race sessions, lap validation may use different criteria and be less consistent
+- This fix specifically addresses the reported issue with qualifying lap detection
+- Users should now see valid qualifying laps properly detected and counted
+
+---
+
 ## Version History Summary
 
-- **v3.1.0** (2025-10-25) - Enhanced audio system with progressive beeping and pitch guidance, validated lap tracking
+- **v3.2.0** (2025-10-27) - In-app help menu with comprehensive usage guide and troubleshooting
+- **v3.1.1** (2025-10-26) - **Critical Fix**: Qualifying lap validation now properly detects valid laps
+- **v3.1.0** (2025-10-26) - Enhanced audio system with progressive beeping and pitch guidance, validated lap tracking
 - **v3.0.0** (2025-10-25) - **MAJOR RELEASE**: Machine learning performance optimization, shift pattern analysis, and intelligent recommendations
 - **v2.1.0** (2025-10-19) - Major improvements to data collection, audio system, and diagnostics
 - **v2.0.0** (2025-10-10) - Auto-configuration workflow, adaptive mode, and reporting system
