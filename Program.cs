@@ -1,6 +1,39 @@
 using ACCRPMMonitor;
 using System.Runtime.InteropServices;
 
+// Check for CLI arguments
+var cliArgs = Environment.GetCommandLineArgs();
+bool isHeadless = cliArgs.Contains("--headless");
+bool isViewer = cliArgs.Contains("--viewer");
+string? serverAddress = null;
+
+// Extract server address for viewer mode
+if (isViewer && cliArgs.Length > 0)
+{
+    for (int i = 0; i < cliArgs.Length - 1; i++)
+    {
+        if (cliArgs[i] == "--server" && i + 1 < cliArgs.Length)
+        {
+            serverAddress = cliArgs[i + 1];
+            break;
+        }
+    }
+    serverAddress ??= "localhost";
+}
+
+// Run headless or viewer mode if specified
+if (isHeadless)
+{
+    RunHeadlessMode();
+    return;
+}
+
+if (isViewer)
+{
+    RunViewerMode(serverAddress ?? "localhost");
+    return;
+}
+
 // Set console window size to fixed dimensions (82x60)
 // Buffer size matches window size to prevent scrolling and resizing
 try
@@ -991,4 +1024,150 @@ static string GetStatusName(int status)
         3 => "PAUSE",
         _ => $"UNKNOWN ({status})"
     };
+}
+
+// Headless mode: runs monitoring without GUI, exposes telemetry via IPC
+static void RunHeadlessMode()
+{
+    Console.WriteLine("Starting headless mode...");
+    Console.WriteLine("Telemetry available via:");
+    Console.WriteLine("  - Named pipes: ACCRPMMonitor_Telemetry (local only)");
+    Console.WriteLine("  - UDP: localhost:7777 (network capable)");
+    Console.WriteLine();
+
+    var configManager = new ConfigMan();
+    var accMemory = new ACCSharedMemorySimple();
+    var ipcServer = new IPCServer();
+    ipcServer.Start();
+
+    if (!accMemory.Connect())
+    {
+        Console.WriteLine("Error: Could not connect to ACC shared memory.");
+        Console.WriteLine("Make sure ACC is running.");
+        return;
+    }
+
+    var gearConfig = configManager.LoadConfig();
+    var shiftAnalyzer = new PatternShift();
+    var optimalShift = new OptimalShift();
+    var performanceEngine = new PerformanceEng(shiftAnalyzer, optimalShift);
+    var audioEngine = new DynAudioEng();
+
+    Console.WriteLine("Connected to ACC. Publishing telemetry...");
+    Console.WriteLine("Press Ctrl+C to stop.");
+
+    try
+    {
+        while (true)
+        {
+            var telemetry = accMemory.ReadFullTelemetry();
+            var lapTiming = accMemory.ReadLapTiming();
+            var status = accMemory.ReadStatus();
+
+            if (telemetry.HasValue && lapTiming != null && status.HasValue)
+            {
+                var (gear, rpm, throttle, speed) = telemetry.Value;
+
+                // Create telemetry data for IPC
+                var data = new TelemetryData
+                {
+                    Gear = gear,
+                    RPM = rpm,
+                    Throttle = throttle,
+                    Speed = speed,
+                    CurrentLapTime = lapTiming.CurrentLapTime,
+                    LastLapTime = lapTiming.LastLapTime,
+                    BestLapTime = lapTiming.BestLapTime,
+                    CompletedLaps = lapTiming.CompletedLaps,
+                    SessionStatus = status.Value,
+                    IsValidLap = lapTiming.IsCurrentLapValid,
+                    RecommendedShiftRPM = gearConfig.GetRPMForGear(gear)
+                };
+
+                // Publish to all connected clients
+                ipcServer.PublishTelemetry(data);
+
+                // Update audio
+                if (status.Value == 2) // LIVE session
+                {
+                    audioEngine.UpdateRPM(rpm, data.RecommendedShiftRPM, gear);
+                }
+            }
+
+            Thread.Sleep(50); // 20 Hz update rate
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Graceful shutdown on Ctrl+C
+    }
+    finally
+    {
+        ipcServer.Stop();
+        accMemory.Dispose();
+        audioEngine.Dispose();
+        Console.WriteLine("Headless mode stopped.");
+    }
+}
+
+// Viewer mode: connects to headless instance and displays telemetry
+static void RunViewerMode(string serverAddress)
+{
+    Console.WriteLine($"Connecting to headless server at {serverAddress}...");
+
+    var ipcClient = new IPCClient(serverAddress);
+    var lastUpdate = DateTime.Now;
+
+    ipcClient.TelemetryReceived += (sender, telemetry) =>
+    {
+        // Clear and redraw display every update
+        if ((DateTime.Now - lastUpdate).TotalMilliseconds >= 100)
+        {
+            Console.Clear();
+            Console.WriteLine("╔════════════════════════════════════════════════════════════════╗");
+            Console.WriteLine("║           ACC RPM MONITOR - VIEWER MODE                        ║");
+            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
+            Console.WriteLine();
+            Console.WriteLine($"Gear:            {telemetry.Gear}                                           ");
+            Console.WriteLine($"RPM:             {telemetry.RPM}                                    ");
+            Console.WriteLine($"Throttle:        {telemetry.Throttle:P1}                                       ");
+            Console.WriteLine($"Speed:           {telemetry.Speed:F1} km/h                                     ");
+            Console.WriteLine();
+            Console.WriteLine("─── LAP TIMING ─────────────────────────────────────────────────");
+            Console.WriteLine($"Current Lap:     {telemetry.CurrentLapTime}                             ");
+            Console.WriteLine($"Last Lap:        {telemetry.LastLapTime}                             ");
+            Console.WriteLine($"Best Lap:        {telemetry.BestLapTime}                                ");
+            Console.WriteLine($"Completed:       {telemetry.CompletedLaps} laps                                    ");
+            Console.WriteLine();
+            Console.WriteLine("─── STATUS ────────────────────────────────────────────────────────");
+            Console.WriteLine($"Session:         {GetStatusName(telemetry.SessionStatus)}                                        ");
+            Console.WriteLine($"Shift Point:     {telemetry.RecommendedShiftRPM} RPM                              ");
+            Console.WriteLine($"Lap Valid:       {(telemetry.IsValidLap ? "Yes" : "No")}                                          ");
+            Console.WriteLine($"Audio Profile:   {telemetry.AudioProfile}                                   ");
+            Console.WriteLine();
+            Console.WriteLine("Press Ctrl+C to disconnect.");
+
+            lastUpdate = DateTime.Now;
+        }
+    };
+
+    ipcClient.Connect();
+
+    try
+    {
+        // Keep viewer running until user presses Ctrl+C
+        while (ipcClient.IsConnected)
+        {
+            Thread.Sleep(100);
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Graceful shutdown
+    }
+    finally
+    {
+        ipcClient.Disconnect();
+        Console.WriteLine("\nDisconnected from server.");
+    }
 }
