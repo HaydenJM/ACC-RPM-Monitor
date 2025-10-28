@@ -181,7 +181,7 @@ public class PatternShift
     /// Analyzes all collected shift data to find optimal shift points based on actual lap performance.
     /// Returns recommended shift RPMs for each gear.
     /// </summary>
-    public Dictionary<int, int> AnalyzeOptimalShiftPoints(int minLapsRequired = 5)
+    public Dictionary<int, int> AnalyzeOptimalShiftPoints(int minLapsRequired = 2)
     {
         var optimalShiftPoints = new Dictionary<int, int>();
 

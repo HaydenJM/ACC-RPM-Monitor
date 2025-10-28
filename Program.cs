@@ -364,11 +364,22 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
     Console.WriteLine($"Mode: {configManager.CurrentMode} (Adaptive)");
     Console.WriteLine("Press ESC to exit | Press F2 to save learned config\n");
 
+    // Audio profile selection
+    Console.WriteLine("Select audio profile:");
+    Console.WriteLine("  1. Normal (responsive tones)");
+    Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
+    Console.Write("Choice: ");
+    var profileChoice = Console.ReadLine();
+    var audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+    audioEngine.SetAudioProfile(audioProfile);
+    audioEngine.SetMode(DynAudioEng.AudioMode.PerformanceLearning); // Use performance learning audio for adaptive mode
+    Console.WriteLine();
+
     // Main loop state
     bool wasConnected = false;
     int readFailCount = 0;
     DateTime lastUpdate = DateTime.Now;
-    const int UpdateIntervalSeconds = 30; // Update shift points every 30 seconds
+    const int UpdateIntervalSeconds = 15; // Update shift points every 15 seconds
 
     Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
@@ -625,6 +636,8 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
 
     using var accMemory = new ACCSharedMemorySimple();
 
+    // Audio profile will be selected after mode description
+
     var shiftAnalyzer = new OptimalShift(); // For physics-based analysis
     var shiftPatternAnalyzer = new PatternShift(); // For shift detection
     var learningEngine = new PerformanceEng(shiftPatternAnalyzer, shiftAnalyzer);
@@ -648,8 +661,16 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     Console.WriteLine("  F2  - Save current learned configuration");
     Console.WriteLine("  F3  - Generate performance report");
     Console.WriteLine();
-    Console.WriteLine("Press any key to start...");
-    Console.ReadKey();
+
+    // Audio profile selection
+    Console.WriteLine("Select audio profile:");
+    Console.WriteLine("  1. Normal (responsive tones)");
+    Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
+    Console.Write("Choice: ");
+    var profileChoice = Console.ReadLine();
+    var audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+    audioEngine.SetAudioProfile(audioProfile);
+    Console.WriteLine();
 
     // Main loop state
     bool wasConnected = false;
@@ -854,6 +875,12 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         Console.WriteLine($"Learning Rate:   {learningEngine.GetLearningRate():P0}                     ");
         Console.WriteLine($"Data Quality:    {(learningEngine.GetDataQuality() < 3 ? "Building..." : learningEngine.GetDataQuality() < 5 ? "Good" : "Excellent")}     ");
 
+        // Continuation recommendation at 2 valid laps
+        if (shiftPatternAnalyzer.GetValidLaps() >= 2 && shiftPatternAnalyzer.GetValidLaps() < 5)
+        {
+            Console.WriteLine($"💡 Analysis ready! ({shiftPatternAnalyzer.GetValidLaps()} valid laps) - Continue for more refined shift points");
+        }
+
         // Debug: Show lap timing data
         if (lapTiming != null)
         {
@@ -915,7 +942,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     Console.WriteLine("=== Performance Learning Session Ended ===");
     Console.WriteLine();
 
-    if (shiftPatternAnalyzer.GetValidLaps() >= 3)
+    if (shiftPatternAnalyzer.GetValidLaps() >= 2)
     {
         Console.WriteLine("Generating performance analysis report...");
         var shiftReport = shiftPatternAnalyzer.GeneratePerformanceReport();
@@ -945,7 +972,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     else
     {
         Console.WriteLine($"Not enough data collected ({shiftPatternAnalyzer.GetValidLaps()} valid laps).");
-        Console.WriteLine("Need at least 3 valid laps for performance analysis.");
+        Console.WriteLine("Need at least 2 valid laps for performance analysis.");
     }
 
     Console.WriteLine();

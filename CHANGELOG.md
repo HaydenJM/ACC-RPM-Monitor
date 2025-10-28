@@ -59,12 +59,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cumulative off-track time tracking (improved from instance-based)
   - Clearer lap validity reporting with off-track metrics
 
+- **Dual Audio Profiles** for Performance Learning and Adaptive Modes
+  - **Normal Profile**: Responsive tones with higher frequencies for quick feedback
+    - Too Early: 950 Hz with +10 Hz glide over 100ms
+    - Optimal: 600 Hz pure sine
+    - Too Late: 400 Hz with triangle waveform
+  - **Endurance Profile**: Low-fatigue tones for extended sessions
+    - Too Early: 650 Hz with +10 Hz glide over 60ms
+    - Optimal: 500 Hz pure sine
+    - Too Late: 400 Hz with -15 Hz glide over 120ms (gently descending)
+  - Users select profile when entering Performance Learning or Adaptive modes
+  - Endurance profile uses all-sine waveforms for warmth and reduced fatigue
+
+- **Lowered Minimum Valid Laps Requirement**
+  - Changed from 5 valid laps to 2 valid laps to enable faster feedback
+  - System provides analysis recommendations after 2 laps
+  - Encourages users to continue for more refined results
+
+- **Adaptive Mode Enhanced**
+  - Now uses Performance Learning audio system (was Standard beeping)
+  - Update interval reduced from 30 seconds to 15 seconds for faster adaptation
+  - Same audio profiles available as Performance Learning mode
+  - Provides quick, intuitive audio feedback during learning
+
 ### Performance & User Experience
 
 - **Audio is now scientifically tuned** for racing feedback without listener fatigue
 - **Tones stop naturally** when driver stops accelerating (real-world driving physics)
 - **Stricter off-track enforcement** aligns with actual racing regulations (3-second threshold)
 - **Cleaner tone design** with proper envelopes prevents jarring audio artifacts
+- **Faster feedback cycles**: Adaptive mode updates every 15 seconds, Performance Learning generates analysis with just 2 valid laps
+- **User choice**: Endurance profile specifically designed for competitive drivers doing long practice sessions
+- **Consistent feedback**: Both Adaptive and Performance Learning modes now use the same intuitive audio guidance system
 
 ---
 

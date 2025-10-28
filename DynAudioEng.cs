@@ -25,7 +25,15 @@ public class DynAudioEng : IDisposable
         PerformanceLearning // Pitch-based guidance (low/high pitch for shift recommendation)
     }
 
+    // Audio profile for Performance Learning mode
+    public enum AudioProfile
+    {
+        Normal,      // Standard tone profiles optimized for responsiveness
+        Endurance    // Low-fatigue tone profiles for extended sessions
+    }
+
     private AudioMode _currentMode = AudioMode.Standard;
+    private AudioProfile _currentProfile = AudioProfile.Normal;
     private int _recommendedShiftRPM = 0; // Used in Performance Learning mode
 
     // Tone profiles for Performance Learning mode
@@ -38,6 +46,8 @@ public class DynAudioEng : IDisposable
         public float DecayLevel { get; set; } // 0.0 to 1.0
         public float RelativeDbLevel { get; set; } // Amplitude multiplier
         public string WaveformType { get; set; } = "triangle"; // "sine", "triangle", "rounded"
+        public float GlideFrequencyDelta { get; set; } = 0f; // Frequency change for glide (Hz)
+        public int GlideDurationMs { get; set; } = 0; // Duration of glide effect (ms)
     }
 
     // Performance Learning tone profiles: Too Early, Optimal, Too Late
@@ -49,7 +59,9 @@ public class DynAudioEng : IDisposable
         DecayMs = 120,
         DecayLevel = 0.60f,
         RelativeDbLevel = 0.707f, // -3dB = 0.707 amplitude
-        WaveformType = "rounded"
+        WaveformType = "rounded",
+        GlideFrequencyDelta = -10f, // -10 Hz glide (descending)
+        GlideDurationMs = 100 // Over 100 ms
     };
 
     private readonly ToneProfile _toneOptimal = new()
@@ -74,6 +86,45 @@ public class DynAudioEng : IDisposable
         WaveformType = "triangle"
     };
 
+    // Endurance tone profiles: Too Early, Optimal, Too Late
+    // Lower-fatigue alternative for extended sessions
+    private readonly ToneProfile _toneEnduranceTooEarly = new()
+    {
+        Frequency = 650f,
+        DurationMs = 110,
+        AttackMs = 8,
+        DecayMs = 130,
+        DecayLevel = 0.57f,
+        RelativeDbLevel = 0.707f, // -3dB
+        WaveformType = "sine",
+        GlideFrequencyDelta = -10f, // -10 Hz glide (descending)
+        GlideDurationMs = 60 // Over 60 ms
+    };
+
+    private readonly ToneProfile _toneEnduranceOptimal = new()
+    {
+        Frequency = 500f,
+        DurationMs = 130,
+        AttackMs = 10,
+        DecayMs = 100,
+        DecayLevel = 0.52f,
+        RelativeDbLevel = 1.0f, // 0dB
+        WaveformType = "sine"
+    };
+
+    private readonly ToneProfile _toneEnduranceTooLate = new()
+    {
+        Frequency = 400f,
+        DurationMs = 140,
+        AttackMs = 8,
+        DecayMs = 160,
+        DecayLevel = 0.48f,
+        RelativeDbLevel = 0.707f, // -3dB
+        WaveformType = "sine",
+        GlideFrequencyDelta = -15f, // -15 Hz glide (descending)
+        GlideDurationMs = 120 // Over 120 ms
+    };
+
     // Track performance learning audio state
     private DateTime _performanceAudioStartTime = DateTime.MinValue;
     private int _performanceAudioStartRPM = 0;
@@ -92,6 +143,14 @@ public class DynAudioEng : IDisposable
     public void SetMode(AudioMode mode)
     {
         _currentMode = mode;
+    }
+
+    /// <summary>
+    /// Sets the audio profile (Normal or Endurance) for Performance Learning mode.
+    /// </summary>
+    public void SetAudioProfile(AudioProfile profile)
+    {
+        _currentProfile = profile;
     }
 
     /// <summary>
@@ -226,23 +285,23 @@ public class DynAudioEng : IDisposable
         // Only play when within warning distance
         if (rpmFromThreshold >= -warningDistance && _recommendedShiftRPM > 0)
         {
-            // Determine which tone to play based on RPM vs recommended shift point
+            // Determine which tone to play based on RPM vs recommended shift point and audio profile
             ToneProfile toneToPlay;
 
-            if (currentRPM > _recommendedShiftRPM + 175)
+            if (currentRPM < _recommendedShiftRPM - 175)
             {
-                // Shifting too late - use "Too Early" tone (950 Hz)
-                toneToPlay = _toneTooEarly;
+                // Shifting too early - use "Too Early" tone (high pitch to indicate shift later)
+                toneToPlay = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
             }
-            else if (currentRPM < _recommendedShiftRPM - 175)
+            else if (currentRPM > _recommendedShiftRPM + 175)
             {
-                // Shifting too early - use "Too Late" tone (400 Hz)
-                toneToPlay = _toneTooLate;
+                // Shifting too late - use "Too Late" tone (low pitch to indicate shift earlier)
+                toneToPlay = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooLate : _toneTooLate;
             }
             else
             {
-                // Within optimal range - use "Optimal" tone (600 Hz)
-                toneToPlay = _toneOptimal;
+                // Within optimal range - use "Optimal" tone (mid pitch)
+                toneToPlay = _currentProfile == AudioProfile.Endurance ? _toneEnduranceOptimal : _toneOptimal;
             }
 
             // Check if audio should stop due to RPM rise rate dropping
@@ -281,10 +340,11 @@ public class DynAudioEng : IDisposable
     /// </summary>
     private void PlayTone(ToneProfile tone)
     {
-        // Configure wave provider with tone parameters
+        // Configure wave provider with tone parameters, including glide effects
         _waveProvider.SetFrequency(tone.Frequency);
         _waveProvider.SetToneProfile(tone.DurationMs, tone.AttackMs, tone.DecayMs,
-                                      tone.DecayLevel, tone.RelativeDbLevel, tone.WaveformType);
+                                      tone.DecayLevel, tone.RelativeDbLevel, tone.WaveformType,
+                                      tone.GlideFrequencyDelta, tone.GlideDurationMs);
         _waveProvider.SetBeeping(false, 0, 0); // Solid tone, no beeping pattern
 
         if (!_isPlaying)
@@ -376,9 +436,11 @@ internal class TriangleWaveProvider : ISampleProvider
     private const float FilterCutoffHz = 1800f; // Gentle roll-off around 1.8 kHz
     private float _filterAlpha;
 
-    // Micro-glide for "too early" tone
+    // Micro-glide support (frequency, direction, and duration)
     private float _targetFrequency;
     private float _glideRate = 0f;
+    private int _glideDurationSamples = 0; // Duration for glide effect
+    private int _glideSampleCount = 0; // Current glide progress
 
     public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
 
@@ -398,7 +460,7 @@ internal class TriangleWaveProvider : ISampleProvider
     /// <summary>
     /// Sets tone profile for Performance Learning mode with ADSR envelope.
     /// </summary>
-    public void SetToneProfile(int durationMs, int attackMs, int decayMs, float decayLevel, float relativeDbLevel, string waveformType)
+    public void SetToneProfile(int durationMs, int attackMs, int decayMs, float decayLevel, float relativeDbLevel, string waveformType, float glideFreqDelta = 0f, int glideDurationMs = 0)
     {
         _useToneProfile = true;
         _toneDurationSamples = (int)(durationMs * WaveFormat.SampleRate / 1000.0);
@@ -408,12 +470,19 @@ internal class TriangleWaveProvider : ISampleProvider
         _relativeDbLevel = relativeDbLevel;
         _waveformType = waveformType;
         _samplesSinceToneStart = 0;
+        _glideSampleCount = 0;
 
-        // For "Too Early" (950 Hz), setup micro-glide ±10 Hz over 100ms
-        if (MathF.Abs(_frequency - 950f) < 1f)
+        // Setup micro-glide if specified
+        if (glideFreqDelta != 0f && glideDurationMs > 0)
         {
-            _targetFrequency = _frequency + 10f;
-            _glideRate = ((_targetFrequency - _frequency) / 100f) * (WaveFormat.SampleRate / 1000f); // Change per sample
+            _targetFrequency = _frequency + glideFreqDelta;
+            _glideDurationSamples = (int)(glideDurationMs * WaveFormat.SampleRate / 1000.0);
+            _glideRate = glideFreqDelta / glideDurationMs * (WaveFormat.SampleRate / 1000f); // Change per sample
+        }
+        else
+        {
+            _glideRate = 0f;
+            _glideDurationSamples = 0;
         }
     }
 
@@ -476,15 +545,11 @@ internal class TriangleWaveProvider : ISampleProvider
                 _filterState = (_filterState * (1f - _filterAlpha)) + (sample * _filterAlpha);
                 sample = _filterState;
 
-                // Apply micro-glide if enabled
-                if (_glideRate != 0f)
+                // Apply micro-glide if enabled and within glide duration
+                if (_glideRate != 0f && _glideSampleCount < _glideDurationSamples)
                 {
                     _frequency += _glideRate;
-                    // Alternate glide direction after reaching target
-                    if ((_glideRate > 0 && _frequency >= _targetFrequency) || (_glideRate < 0 && _frequency <= _targetFrequency))
-                    {
-                        _glideRate = -_glideRate; // Reverse direction
-                    }
+                    _glideSampleCount++;
                 }
 
                 _samplesSinceToneStart++;

@@ -217,8 +217,23 @@ public class ACCSharedMemorySimple : IDisposable
     {
         try
         {
-            // ACC uses wide strings (2 bytes per char)
-            return System.Text.Encoding.Unicode.GetString(bytes).TrimEnd('\0');
+            // ACC uses wide strings (2 bytes per char, UTF-16)
+            // Find the null terminator (0x00 0x00 for wide char)
+            int nullIndex = -1;
+            for (int i = 0; i < bytes.Length - 1; i += 2)
+            {
+                if (bytes[i] == 0 && bytes[i + 1] == 0)
+                {
+                    nullIndex = i;
+                    break;
+                }
+            }
+
+            // Decode only up to null terminator, or entire array if no null found
+            int length = (nullIndex >= 0) ? nullIndex : bytes.Length;
+            string result = System.Text.Encoding.Unicode.GetString(bytes, 0, length);
+
+            return result.Length > 0 ? result : "00:00.000";
         }
         catch
         {
