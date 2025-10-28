@@ -124,7 +124,7 @@ static void OpenConfigFolder()
 }
 
 // Monitor mode - the actual RPM monitoring
-static void RunMonitor(ConfigManager configManager, GearRPMConfig config)
+static void RunMonitor(ConfigMan configManager, GearRPMConfig config)
 {
     // Check if user wants adaptive mode
     Console.Clear();
@@ -154,7 +154,7 @@ static void RunMonitor(ConfigManager configManager, GearRPMConfig config)
 }
 
 // Standard monitor mode with fixed shift points
-static void RunStandardMonitor(ConfigManager configManager, GearRPMConfig config)
+static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
 {
     // Initialize dynamic audio engine
     using var audioEngine = new DynAudioEng();
@@ -340,7 +340,7 @@ static void RunStandardMonitor(ConfigManager configManager, GearRPMConfig config
 }
 
 // Adaptive monitor mode - continuously learns and updates shift points
-static void RunAdaptiveMonitor(ConfigManager configManager, GearRPMConfig config)
+static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
 {
     // Initialize dynamic audio engine
     using var audioEngine = new DynAudioEng();
@@ -617,7 +617,7 @@ static void RunAdaptiveMonitor(ConfigManager configManager, GearRPMConfig config
 }
 
 // Performance Learning monitor mode - AI-driven shift optimization based on lap times
-static void RunPerformanceLearningMonitor(ConfigManager configManager, GearRPMConfig config)
+static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig config)
 {
     // Initialize all required engines
     using var audioEngine = new DynAudioEng();

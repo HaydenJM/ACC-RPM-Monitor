@@ -6,8 +6,8 @@ namespace ACCRPMMonitor;
 /// </summary>
 public class PerformanceEng
 {
-    private readonly ShiftPatternAnalyzer _shiftAnalyzer;
-    private readonly OptimalShiftAnalyzer _accelerationAnalyzer;
+    private readonly PatternShift _shiftAnalyzer;
+    private readonly OptimalShift _accelerationAnalyzer;
 
     // Learning parameters
     private const float AccelerationWeight = 0.4f; // Weight for physics-based acceleration analysis
@@ -18,7 +18,7 @@ public class PerformanceEng
     // Adaptive learning rate (starts conservative, increases with data confidence)
     private float _learningRate = 0.2f;
 
-    public PerformanceLearningEngine(ShiftPatternAnalyzer shiftAnalyzer, OptimalShiftAnalyzer accelerationAnalyzer)
+    public PerformanceEng(PatternShift shiftAnalyzer, OptimalShift accelerationAnalyzer)
     {
         _shiftAnalyzer = shiftAnalyzer;
         _accelerationAnalyzer = accelerationAnalyzer;

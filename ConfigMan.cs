@@ -14,7 +14,7 @@ public class ConfigMan
 
     public ConfigMode CurrentMode { get; private set; } = ConfigMode.Manual;
 
-    public ConfigManager(string vehicleName = "default")
+    public ConfigMan(string vehicleName = "default")
     {
         // Store configs in ./data directory next to the application
         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;

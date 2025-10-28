@@ -28,7 +28,7 @@ public class DynAudioEng : IDisposable
     private AudioMode _currentMode = AudioMode.Standard;
     private int _recommendedShiftRPM = 0; // Used in Performance Learning mode
 
-    public DynamicAudioEngine()
+    public DynAudioEng()
     {
         _waveProvider = new TriangleWaveProvider();
         _waveOut = new WaveOutEvent();

@@ -4,7 +4,7 @@ namespace ACCRPMMonitor;
 public static class ConfigUI
 {
     // Main menu - entry point for the application
-    public static MainMenuChoice ShowMainMenu(ConfigManager configManager)
+    public static MainMenuChoice ShowMainMenu(ConfigMan configManager)
     {
         while (true)
         {
@@ -60,7 +60,7 @@ public static class ConfigUI
     }
 
     // Main vehicle selection menu
-    public static void ShowVehicleSelectionMenu(ConfigManager configManager)
+    public static void ShowVehicleSelectionMenu(ConfigMan configManager)
     {
         while (true)
         {
@@ -145,7 +145,7 @@ public static class ConfigUI
     }
 
     // Configuration mode selection menu
-    public static void ShowModeSelectionMenu(ConfigManager configManager)
+    public static void ShowModeSelectionMenu(ConfigMan configManager)
     {
         while (true)
         {
@@ -207,7 +207,7 @@ public static class ConfigUI
     }
 
     // Creates a new vehicle config
-    private static void CreateNewVehicle(ConfigManager configManager)
+    private static void CreateNewVehicle(ConfigMan configManager)
     {
         Console.Write("\nEnter vehicle name: ");
         string? vehicleName = Console.ReadLine()?.Trim();
@@ -335,7 +335,7 @@ public static class ConfigUI
     }
 
     // Deletes a vehicle config
-    private static void DeleteVehicle(ConfigManager configManager, List<string> vehicles)
+    private static void DeleteVehicle(ConfigMan configManager, List<string> vehicles)
     {
         Console.Write("\nEnter vehicle number to delete (or press Enter to cancel): ");
         string? input = Console.ReadLine();
@@ -373,7 +373,7 @@ public static class ConfigUI
     }
 
     // Main config menu - lets you edit RPM thresholds for each gear
-    public static void ShowConfigMenu(GearRPMConfig config, ConfigManager configManager)
+    public static void ShowConfigMenu(GearRPMConfig config, ConfigMan configManager)
     {
         // Auto mode configs shouldn't be edited manually
         if (configManager.CurrentMode == ConfigMode.Auto)

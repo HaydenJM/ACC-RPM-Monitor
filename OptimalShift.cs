@@ -430,7 +430,7 @@ public class OptimalShift
         _dataPoints.Count(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold);
 
     // Generates a detailed data collection report for gears 1-6
-    public DataCollectionReport GenerateDetailedReport(string vehicleName)
+    public DataReport GenerateDetailedReport(string vehicleName)
     {
         var report = new DataReport
         {

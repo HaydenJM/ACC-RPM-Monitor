@@ -10,7 +10,7 @@ public class PatternShiftReport
 {
     private readonly string _baseDataPath;
 
-    public ShiftPatternReportGenerator()
+    public PatternShiftReport()
     {
         // Use ./data directory next to application
         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;

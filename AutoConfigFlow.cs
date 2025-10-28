@@ -3,7 +3,7 @@ namespace ACCRPMMonitor;
 // Handles the auto configuration data collection workflow
 public static class AutoConfigFlow
 {
-    public static void Run(ConfigManager configManager)
+    public static void Run(ConfigMan configManager)
     {
         Console.Clear();
         Console.WriteLine("=".PadRight(80, '='));
@@ -235,7 +235,7 @@ public static class AutoConfigFlow
         }
     }
 
-    private static bool AnalyzeAndSaveData(OptimalShiftAnalyzer analyzer, ConfigManager configManager)
+    private static bool AnalyzeAndSaveData(OptimalShift analyzer, ConfigMan configManager)
     {
         Console.Clear();
         Console.WriteLine("=".PadRight(80, '='));
