@@ -125,7 +125,7 @@ public class ACCSharedMemorySimple : IDisposable
         }
     }
 
-    // Reads comprehensive lap timing data including validated laps
+    // Reads comprehensive lap timing data including lap validity
     public LapTimingData? ReadLapTiming()
     {
         if (_graphicsMMF == null)
@@ -133,37 +133,30 @@ public class ACCSharedMemorySimple : IDisposable
 
         try
         {
-            using var accessor = _graphicsMMF.CreateViewAccessor(0, 1024, MemoryMappedFileAccess.Read);
+            using var accessor = _graphicsMMF.CreateViewAccessor(0, 2048, MemoryMappedFileAccess.Read);
 
-            // ACC Graphics structure offsets
+            // ACC Graphics structure offsets (based on SPageFileGraphic from ACC SDK)
             int packetId = accessor.ReadInt32(0);
             int status = accessor.ReadInt32(4);
-            int session = accessor.ReadInt32(8);
+            int sessionType = accessor.ReadInt32(8);
 
-            // Read lap times as wide strings (16 chars each = 32 bytes)
-            byte[] currentTimeBytes = new byte[32];
-            byte[] lastTimeBytes = new byte[32];
-            byte[] bestTimeBytes = new byte[32];
+            // Read lap times as wide strings (wchar_t[15] each = 30 bytes)
+            byte[] currentTimeBytes = new byte[30];
+            byte[] lastTimeBytes = new byte[30];
+            byte[] bestTimeBytes = new byte[30];
 
-            accessor.ReadArray(12, currentTimeBytes, 0, 32);  // Offset 12: iCurrentTime (wchar_t[15])
-            accessor.ReadArray(44, lastTimeBytes, 0, 32);     // Offset 44: iLastTime (wchar_t[15])
-            accessor.ReadArray(76, bestTimeBytes, 0, 32);     // Offset 76: iBestTime (wchar_t[15])
+            accessor.ReadArray(12, currentTimeBytes, 0, 30);   // Offset 12
+            accessor.ReadArray(42, lastTimeBytes, 0, 30);      // Offset 42
+            accessor.ReadArray(72, bestTimeBytes, 0, 30);      // Offset 72
+            // last_sector_time_str at offset 102 (skip)
 
-            // Split (wchar_t[15]) at offset 108 - not used
-            int completedLaps = accessor.ReadInt32(140);      // Offset 140: completedLaps
-            int numberOfLaps = accessor.ReadInt32(144);       // Offset 144: numberOfLaps (this is the TOTAL laps in session, not validated)
+            int completedLaps = accessor.ReadInt32(132);       // Offset 132: completed_lap
+            int lastTime = accessor.ReadInt32(144);            // Offset 144: last_time (milliseconds)
 
-            // The actual validated lap count needs different logic
-            // We'll compare if iLastTime == iBestTime or if it's a valid time
-            // For now, let's try reading from a different offset based on ACC SDK
-
-            // Try reading from what might be the correct offset for session completed laps
-            int sessionTimeLeft = accessor.ReadInt32(148);    // Offset 148: iSessionTimeLeft
-
-            // Since numberOfLaps at 144 might be total laps in session, not validated laps,
-            // we need to use a different approach: check if last lap time is valid
-            bool lastLapWasValid = !string.IsNullOrWhiteSpace(ParseTimeString(lastTimeBytes)) &&
-                                    ParseTimeString(lastTimeBytes) != "00:00.000";
+            // Read is_valid_lap from offset 1408 (based on ACC shared memory structure)
+            // This field indicates if the CURRENT lap (in progress) is valid
+            // Works reliably in practice/qualifying, less reliable in races
+            int isValidLap = accessor.ReadInt32(1408);         // Offset 1408: is_valid_lap
 
             return new LapTimingData
             {
@@ -171,9 +164,10 @@ public class ACCSharedMemorySimple : IDisposable
                 LastLapTime = ParseTimeString(lastTimeBytes),
                 BestLapTime = ParseTimeString(bestTimeBytes),
                 CompletedLaps = completedLaps,
-                ValidatedLaps = lastLapWasValid ? completedLaps : Math.Max(0, completedLaps - 1), // Estimate: if last lap has time, it's valid
+                LastLapTimeMs = lastTime,
+                IsCurrentLapValid = isValidLap != 0,
                 Status = status,
-                LastLapWasInvalidated = !lastLapWasValid && completedLaps > 0
+                SessionType = sessionType
             };
         }
         catch (Exception ex)
@@ -250,9 +244,10 @@ public class LapTimingData
     public string LastLapTime { get; set; } = "00:00.000";
     public string BestLapTime { get; set; } = "00:00.000";
     public int CompletedLaps { get; set; }
-    public int ValidatedLaps { get; set; }
+    public int LastLapTimeMs { get; set; }
     public int Status { get; set; }
-    public bool LastLapWasInvalidated { get; set; }
+    public int SessionType { get; set; }
+    public bool IsCurrentLapValid { get; set; }
 
     // Parse time string to milliseconds for comparison
     public int ParseTimeToMs(string timeStr)
@@ -279,20 +274,7 @@ public class LapTimingData
     }
 
     public int CurrentLapTimeMs => ParseTimeToMs(CurrentLapTime);
-    public int LastLapTimeMs => ParseTimeToMs(LastLapTime);
     public int BestLapTimeMs => ParseTimeToMs(BestLapTime);
-
-    // Check if the last completed lap was valid
-    // Uses heuristic: if last lap has a valid time, it wasn't invalidated
-    // NOTE: This is an approximation since ACC's validated_laps field location is unclear
-    public bool WasLastLapValid()
-    {
-        if (LastLapWasInvalidated) return false;
-        if (ValidatedLaps == CompletedLaps) return true;
-
-        // Fallback: check if last lap time is valid
-        return LastLapTimeMs < int.MaxValue && LastLapTimeMs > 0;
-    }
 }
 
 // Position data for off-track detection

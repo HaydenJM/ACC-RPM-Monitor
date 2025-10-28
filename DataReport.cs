@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace ACCRPMMonitor;
 
 // Detailed report of a data collection session for auto configuration
-public class DataCollectionReport
+public class DataReport
 {
     public DateTime SessionStart { get; set; }
     public DateTime SessionEnd { get; set; }

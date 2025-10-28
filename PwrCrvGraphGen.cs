@@ -3,7 +3,7 @@ namespace ACCRPMMonitor;
 using ScottPlot;
 
 // Generates visual power curve graphs for auto-generated configurations
-public static class PowerCurveGraphGenerator
+public static class PwrCrvGraphGen
 {
     // Generates a PNG image showing acceleration curves and gear ratios
     public static string GenerateGraph(GearRPMConfig config, string vehicleName, string outputDir)

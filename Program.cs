@@ -1,23 +1,15 @@
 using ACCRPMMonitor;
 using System.Runtime.InteropServices;
 
-// Set console window size to fixed dimensions (82x40)
+// Set console window size to fixed dimensions (82x60)
 // Buffer size matches window size to prevent scrolling and resizing
 try
 {
     const int width = 82;
-    const int height = 40;
+    const int height = 60;
 
     Console.SetWindowSize(width, height);
     Console.SetBufferSize(width, height);
-
-    // Lock the window size on Windows only (works with legacy conhost.exe, not Windows Terminal)
-    // Note: Windows Terminal ignores Win32 window style changes
-    // To use with locked window, run with conhost.exe instead of Windows Terminal
-    if (OperatingSystem.IsWindows())
-    {
-        ConsoleWindowLocker.LockWindowSize();
-    }
 }
 catch (Exception)
 {
@@ -25,7 +17,7 @@ catch (Exception)
 }
 
 // Initialize config manager and vehicle detector
-var configManager = new ConfigManager();
+var configManager = new ConfigMan();
 var vehicleDetector = new VehicleDetector();
 
 // Try to detect current vehicle from ACC
@@ -57,7 +49,7 @@ while (!exitApp)
     switch (menuChoice)
     {
         case MainMenuChoice.CreateAutoConfig:
-            AutoConfigWorkflow.Run(configManager);
+            AutoConfigFlow.Run(configManager);
             break;
 
         case MainMenuChoice.CreateManualConfig:
@@ -165,7 +157,7 @@ static void RunMonitor(ConfigManager configManager, GearRPMConfig config)
 static void RunStandardMonitor(ConfigManager configManager, GearRPMConfig config)
 {
     // Initialize dynamic audio engine
-    using var audioEngine = new DynamicAudioEngine();
+    using var audioEngine = new DynAudioEng();
 
     // Initialize ACC shared memory
     using var accMemory = new ACCSharedMemorySimple();
@@ -351,13 +343,13 @@ static void RunStandardMonitor(ConfigManager configManager, GearRPMConfig config
 static void RunAdaptiveMonitor(ConfigManager configManager, GearRPMConfig config)
 {
     // Initialize dynamic audio engine
-    using var audioEngine = new DynamicAudioEngine();
+    using var audioEngine = new DynAudioEng();
 
     // Initialize ACC shared memory
     using var accMemory = new ACCSharedMemorySimple();
 
     // Initialize shift analyzer for continuous learning
-    var shiftAnalyzer = new OptimalShiftAnalyzer();
+    var shiftAnalyzer = new OptimalShift();
 
     // Initialize gear recommendation engine if auto-config available
     GearRecommendationEngine? gearRecommendation = null;
@@ -628,15 +620,15 @@ static void RunAdaptiveMonitor(ConfigManager configManager, GearRPMConfig config
 static void RunPerformanceLearningMonitor(ConfigManager configManager, GearRPMConfig config)
 {
     // Initialize all required engines
-    using var audioEngine = new DynamicAudioEngine();
-    audioEngine.SetMode(DynamicAudioEngine.AudioMode.PerformanceLearning); // Use pitch-based guidance
+    using var audioEngine = new DynAudioEng();
+    audioEngine.SetMode(DynAudioEng.AudioMode.PerformanceLearning); // Use pitch-based guidance
 
     using var accMemory = new ACCSharedMemorySimple();
 
-    var shiftAnalyzer = new OptimalShiftAnalyzer(); // For physics-based analysis
-    var shiftPatternAnalyzer = new ShiftPatternAnalyzer(); // For shift detection
-    var learningEngine = new PerformanceLearningEngine(shiftPatternAnalyzer, shiftAnalyzer);
-    var reportGenerator = new ShiftPatternReportGenerator();
+    var shiftAnalyzer = new OptimalShift(); // For physics-based analysis
+    var shiftPatternAnalyzer = new PatternShift(); // For shift detection
+    var learningEngine = new PerformanceEng(shiftPatternAnalyzer, shiftAnalyzer);
+    var reportGenerator = new PatternShiftReport();
 
     // Initialize gear recommendation engine if available
     GearRecommendationEngine? gearRecommendation = null;

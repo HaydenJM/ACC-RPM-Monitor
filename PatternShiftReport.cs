@@ -6,19 +6,16 @@ namespace ACCRPMMonitor;
 /// <summary>
 /// Generates detailed reports and visualizations for shift pattern analysis.
 /// </summary>
-public class ShiftPatternReportGenerator
+public class PatternShiftReport
 {
-    private readonly string _reportsPath;
+    private readonly string _baseDataPath;
 
     public ShiftPatternReportGenerator()
     {
-        _reportsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ACCRPMMonitor",
-            "shift_analysis"
-        );
-
-        Directory.CreateDirectory(_reportsPath);
+        // Use ./data directory next to application
+        string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        _baseDataPath = Path.Combine(appDirectory, "data");
+        Directory.CreateDirectory(_baseDataPath);
     }
 
     /// <summary>
@@ -26,15 +23,19 @@ public class ShiftPatternReportGenerator
     /// </summary>
     public string SaveShiftPatternReport(ShiftPatternReport report, LearningReport learningReport, string vehicleName)
     {
+        // Create vehicle-specific directory
+        string vehicleReportsPath = Path.Combine(_baseDataPath, vehicleName);
+        Directory.CreateDirectory(vehicleReportsPath);
+
         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        string baseFileName = $"shift_analysis_{vehicleName}_{timestamp}";
+        string baseFileName = $"shift_analysis_{timestamp}";
 
         // Save JSON version
-        string jsonPath = Path.Combine(_reportsPath, $"{baseFileName}.json");
+        string jsonPath = Path.Combine(vehicleReportsPath, $"{baseFileName}.json");
         SaveJsonReport(report, learningReport, jsonPath);
 
         // Save human-readable text version
-        string textPath = Path.Combine(_reportsPath, $"{baseFileName}.txt");
+        string textPath = Path.Combine(vehicleReportsPath, $"{baseFileName}.txt");
         SaveTextReport(report, learningReport, textPath);
 
         return textPath;
@@ -215,5 +216,5 @@ public class ShiftPatternReportGenerator
         return sb.ToString();
     }
 
-    public string GetReportsPath() => _reportsPath;
+    public string GetReportsPath() => _baseDataPath;
 }

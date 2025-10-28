@@ -4,7 +4,7 @@ namespace ACCRPMMonitor;
 /// Detects gear shifts and analyzes shift patterns in relation to lap performance.
 /// Correlates shift behavior with lap times and track position to optimize shift points.
 /// </summary>
-public class ShiftPatternAnalyzer
+public class PatternShift
 {
     private readonly List<ShiftEvent> _shiftHistory = new();
     private readonly List<LapPerformance> _lapHistory = new();
@@ -21,6 +21,7 @@ public class ShiftPatternAnalyzer
     private int _offTrackCount = 0;
     private bool _wasOffTrack = false;
     private DateTime _lastUpdate = DateTime.Now;
+    private bool _wasCurrentLapValid = false; // Track validity status of lap in progress
 
     // Shift detection parameters
     private const int MinRPMForShift = 3000; // Ignore shifts below this RPM (downshifts while braking)
@@ -70,14 +71,23 @@ public class ShiftPatternAnalyzer
         }
         _wasOffTrack = isOffTrack;
 
+        // Track lap validity status (this tells us if the CURRENT lap in progress is valid)
+        if (lapTiming != null)
+        {
+            _wasCurrentLapValid = lapTiming.IsCurrentLapValid;
+        }
+
         // Detect lap completion
         if (lapTiming != null && lapTiming.CompletedLaps > _currentLapNumber)
         {
-            CompleteLap(lapTiming);
+            // When lap completes, use the validity status from BEFORE completion
+            CompleteLap(lapTiming, _wasCurrentLapValid);
             _currentLapNumber = lapTiming.CompletedLaps;
             _lapStartTime = now;
             _offTrackTime = 0;
             _offTrackCount = 0;
+            // Reset validity for new lap (will be updated in next frame)
+            _wasCurrentLapValid = lapTiming.IsCurrentLapValid;
         }
 
         // Update state
@@ -113,19 +123,21 @@ public class ShiftPatternAnalyzer
 
     /// <summary>
     /// Completes the current lap and associates all shifts with lap performance.
-    /// Uses ACC's validated_laps to determine lap validity (primary method).
-    /// NOTE: validated_laps may be unreliable during race sessions; works best in practice/qualifying.
+    /// Uses ACC's is_valid_lap field to determine lap validity.
+    /// NOTE: is_valid_lap is reliable in practice/qualifying but less reliable in races.
     /// </summary>
-    private void CompleteLap(LapTimingData lapTiming)
+    private void CompleteLap(LapTimingData lapTiming, bool wasLapValid)
     {
         if (_currentLapNumber == 0)
             return; // First lap, no data yet
 
-        // Primary validity check: Use ACC's validated_laps field
-        bool isValidByACC = lapTiming.WasLastLapValid();
+        // Primary validity check: Use ACC's is_valid_lap field (tracked from previous frame)
+        bool isValidByACC = wasLapValid;
 
         // Secondary validity check: Basic sanity checks on lap time and off-track
-        bool isValidByMetrics = lapTiming.LastLapTimeMs < int.MaxValue && _offTrackTime < 2.0f;
+        bool isValidByMetrics = lapTiming.LastLapTimeMs < int.MaxValue &&
+                                lapTiming.LastLapTimeMs > 0 &&
+                                _offTrackTime < 2.0f;
 
         var lapPerformance = new LapPerformance
         {

@@ -1,7 +1,7 @@
 namespace ACCRPMMonitor;
 
 // Analyzes telemetry data to find optimal shift points for each gear
-public class OptimalShiftAnalyzer
+public class OptimalShift
 {
     private readonly List<TelemetryDataPoint> _dataPoints = new();
     private const float FullThrottleThreshold = 0.85f; // Lowered from 0.95f - 85% throttle is more realistic
@@ -432,7 +432,7 @@ public class OptimalShiftAnalyzer
     // Generates a detailed data collection report for gears 1-6
     public DataCollectionReport GenerateDetailedReport(string vehicleName)
     {
-        var report = new DataCollectionReport
+        var report = new DataReport
         {
             SessionStart = _sessionStart,
             SessionEnd = DateTime.Now,
@@ -440,7 +440,7 @@ public class OptimalShiftAnalyzer
             TotalDataPoints = _dataPoints.Count
         };
 
-        var gearAnalyses = new List<DataCollectionReport.GearAnalysis>();
+        var gearAnalyses = new List<DataReport.GearAnalysis>();
         int successfulGears = 0;
 
         // Analyze gears 1-6 specifically
@@ -492,12 +492,12 @@ public class OptimalShiftAnalyzer
     }
 
     // Analyzes a specific gear in detail
-    private DataCollectionReport.GearAnalysis AnalyzeGear(int gear)
+    private DataReport.GearAnalysis AnalyzeGear(int gear)
     {
         var allGearData = _dataPoints.Where(p => p.Gear == gear).ToList();
         var fullThrottleData = allGearData.Where(p => p.Throttle >= FullThrottleThreshold).ToList();
 
-        var analysis = new DataCollectionReport.GearAnalysis
+        var analysis = new DataReport.GearAnalysis
         {
             Gear = gear,
             TotalDataPoints = allGearData.Count,

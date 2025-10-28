@@ -1,7 +1,7 @@
 namespace ACCRPMMonitor;
 
 // Handles the auto configuration data collection workflow
-public static class AutoConfigWorkflow
+public static class AutoConfigFlow
 {
     public static void Run(ConfigManager configManager)
     {
@@ -28,7 +28,7 @@ public static class AutoConfigWorkflow
         Console.WriteLine("Press any key to begin...");
         Console.ReadKey();
 
-        var shiftAnalyzer = new OptimalShiftAnalyzer();
+        var shiftAnalyzer = new OptimalShift();
         using var accMemory = new ACCSharedMemorySimple();
 
         Console.Clear();
@@ -246,12 +246,8 @@ public static class AutoConfigWorkflow
         // Generate detailed report
         var report = analyzer.GenerateDetailedReport(configManager.CurrentVehicleName);
 
-        // Save reports
-        string reportsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ACCRPMMonitor",
-            "reports"
-        );
+        // Save reports to vehicle-specific directory
+        string reportsDir = configManager.GetVehicleDataDirectory();
         report.SaveToFile(reportsDir);
         report.SaveHumanReadableReport(reportsDir);
 
@@ -289,7 +285,7 @@ public static class AutoConfigWorkflow
                 {
                     Console.WriteLine();
                     Console.WriteLine("Generating power curve graph...");
-                    string graphPath = PowerCurveGraphGenerator.GenerateGraph(
+                    string graphPath = PwrCrvGraphGen.GenerateGraph(
                         autoConfig,
                         configManager.CurrentVehicleName,
                         reportsDir

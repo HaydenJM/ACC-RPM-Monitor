@@ -4,7 +4,7 @@ namespace ACCRPMMonitor;
 /// Machine learning engine that continuously optimizes shift points based on actual lap performance.
 /// Uses a weighted scoring system that balances theoretical acceleration curves with real-world results.
 /// </summary>
-public class PerformanceLearningEngine
+public class PerformanceEng
 {
     private readonly ShiftPatternAnalyzer _shiftAnalyzer;
     private readonly OptimalShiftAnalyzer _accelerationAnalyzer;

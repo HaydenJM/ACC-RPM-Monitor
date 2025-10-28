@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace ACCRPMMonitor;
 
 // Handles loading and saving of per-vehicle RPM configs (both manual and auto)
-public class ConfigManager
+public class ConfigMan
 {
     private readonly string _configsDirectory;
     private string _currentVehicleName;
@@ -16,14 +16,21 @@ public class ConfigManager
 
     public ConfigManager(string vehicleName = "default")
     {
-        // Store configs in AppData\Local\ACCRPMMonitor\powercurves
-        string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string appFolder = Path.Combine(appDataPath, "ACCRPMMonitor");
-        _configsDirectory = Path.Combine(appFolder, "powercurves");
+        // Store configs in ./data directory next to the application
+        string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        _configsDirectory = Path.Combine(appDirectory, "data");
 
         Directory.CreateDirectory(_configsDirectory);
 
         _currentVehicleName = vehicleName;
+    }
+
+    // Gets the vehicle-specific directory for generated files (reports, graphs, etc.)
+    public string GetVehicleDataDirectory()
+    {
+        string vehicleDir = Path.Combine(_configsDirectory, _currentVehicleName);
+        Directory.CreateDirectory(vehicleDir);
+        return vehicleDir;
     }
 
     // Loads config from file based on current mode

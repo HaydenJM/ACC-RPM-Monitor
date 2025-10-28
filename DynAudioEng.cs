@@ -3,7 +3,7 @@ using NAudio.Wave;
 namespace ACCRPMMonitor;
 
 // Audio engine with mode-specific feedback strategies
-public class DynamicAudioEngine : IDisposable
+public class DynAudioEng : IDisposable
 {
     private readonly WaveOutEvent _waveOut;
     private readonly TriangleWaveProvider _waveProvider;
