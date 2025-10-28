@@ -37,19 +37,12 @@ public static class ConfigUI
             Console.WriteLine();
             Console.WriteLine("  [7] Exit");
             Console.WriteLine();
-            Console.WriteLine("Press ESC to exit application");
-            Console.WriteLine();
 
             Console.Write("Select option (1-7): ");
             string? input = Console.ReadLine();
 
             if (string.IsNullOrWhiteSpace(input))
                 continue;
-
-            if (input.Equals("ESC", StringComparison.OrdinalIgnoreCase))
-            {
-                return MainMenuChoice.Exit;
-            }
 
             // Check for number keys
             if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 7)

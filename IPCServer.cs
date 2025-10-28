@@ -237,9 +237,11 @@ public class IPCClient : IDisposable
 
             try
             {
-                await pipeClient.ConnectAsync(5000, cancellationToken);
+                // Use a timeout without cancellation token to avoid OperationCanceledException on connection
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await pipeClient.ConnectAsync(timeoutCts.Token);
             }
-            catch (TimeoutException)
+            catch (OperationCanceledException)
             {
                 Console.WriteLine("[IPC] Named pipe connection timeout - is headless server running?");
                 return;
