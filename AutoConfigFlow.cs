@@ -31,7 +31,8 @@ public static class AutoConfigFlow
         var shiftAnalyzer = new OptimalShift();
         using var accMemory = new ACCSharedMemorySimple();
         var currentConfig = configManager.LoadConfig();
-        int maxGear = currentConfig.MaxGear > 0 ? currentConfig.MaxGear : 6; // Default to 6 if not set
+        int maxGear = currentConfig.MaxGear > 0 ? currentConfig.MaxGear : 6; // Use config if set, otherwise will detect from ACC
+        int detectedMaxGear = 6; // Will be updated as we detect gears in session
 
         Console.Clear();
         Console.WriteLine("=".PadRight(80, '='));
@@ -164,6 +165,12 @@ public static class AutoConfigFlow
             readFailCount = 0;
             var (currentGear, currentRPM, throttle, speed) = telemetryData.Value;
             bool isDriving = status == 2; // AC_LIVE
+
+            // Update detected max gear from shared memory
+            detectedMaxGear = accMemory.GetDetectedMaxGear();
+            // Use detected gear if available and not overridden by config
+            if (detectedMaxGear > maxGear && currentConfig.MaxGear <= 0)
+                maxGear = detectedMaxGear;
 
             // Display status
             Console.SetCursorPosition(0, 7);

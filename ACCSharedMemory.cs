@@ -8,6 +8,7 @@ public class ACCSharedMemorySimple : IDisposable
 {
     private MemoryMappedFile? _physicsMMF;
     private MemoryMappedFile? _graphicsMMF;
+    private int _detectedMaxGear = 6; // Track highest gear seen (GT3=6, Road cars=6-7, etc.)
 
     private const string PhysicsMMFName = "Local\\acpmf_physics";
     private const string GraphicsMMFName = "Local\\acpmf_graphics";
@@ -31,6 +32,12 @@ public class ACCSharedMemorySimple : IDisposable
 
     public bool IsConnected => _physicsMMF != null;
 
+    /// <summary>
+    /// Gets the highest gear detected during this session.
+    /// Dynamically detects vehicle's max gear (GT3=6, Road cars may be 6-7, etc.)
+    /// </summary>
+    public int GetDetectedMaxGear() => _detectedMaxGear;
+
     // Reads just the gear and RPM from physics memory
     public (int gear, int rpm)? ReadGearAndRPM()
     {
@@ -45,6 +52,10 @@ public class ACCSharedMemorySimple : IDisposable
             int packetId = accessor.ReadInt32(0);
             int gear = accessor.ReadInt32(16);  // 16 bytes in
             int rpm = accessor.ReadInt32(20);   // 20 bytes in
+
+            // Track highest gear seen (dynamic max gear detection)
+            if (gear > _detectedMaxGear)
+                _detectedMaxGear = gear;
 
             return (gear, rpm);
         }
@@ -72,6 +83,10 @@ public class ACCSharedMemorySimple : IDisposable
             int gear = accessor.ReadInt32(16);       // Offset 16 - Gear
             int rpm = accessor.ReadInt32(20);        // Offset 20 - RPM
             float speedKmh = accessor.ReadSingle(28); // Offset 28 - Speed in km/h (was incorrectly 24)
+
+            // Track highest gear seen (dynamic max gear detection)
+            if (gear > _detectedMaxGear)
+                _detectedMaxGear = gear;
 
             return (gear, rpm, gas, speedKmh);
         }
