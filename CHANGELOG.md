@@ -5,6 +5,69 @@ All notable changes to ACC RPM Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2025-10-28
+
+### Added
+
+- **Sophisticated Performance Learning Audio System**: Replaced pitch modulation with carefully-tuned tone profiles
+  - **Too Early (950 Hz)**: 130ms duration, 5ms attack, 120ms decay to 60%, -3 dB relative level
+    - Sine/rounded triangle waveform
+    - Micro-glide ±10 Hz over 100ms for smooth pitch variation
+  - **Optimal (600 Hz)**: 140ms duration, 5ms attack, 135ms decay to 55%, 0 dB reference level
+    - Pure sine waveform for clarity
+  - **Too Late (400 Hz)**: 150ms duration, 5ms attack, 145ms decay to 50%, -2 dB relative level
+    - Sine/triangle blend waveform
+  - All tones use low-pass filter with gentle roll-off around 1.8 kHz
+  - ADSR envelope shaping for natural, non-fatiguing audio
+
+- **Intelligent Audio Stop Conditions**
+  - Audio stops when RPM rise rate drops (player stops accelerating)
+  - Audio respects tone duration limits (130-150ms per tone)
+  - No timer reset on gear changes - cleaner, more intuitive behavior
+  - Reduces audio fatigue by avoiding prolonged tones
+
+### Changed
+
+- **Off-Track Detection Threshold**: Changed lap invalidation logic for stricter enforcement
+  - Off-track threshold: 0.5f = 50% off track (physical distance metric)
+  - Lap invalidation: Now requires ≥3.0 seconds cumulative off-track time (was 2.0 seconds)
+  - Tracks total off-track time per lap, not individual instances
+  - Aligns with racing regulations allowing brief excursions off-line
+
+- **Performance Learning Mode Audio**: Completely redesigned from pitch modulation to tone-based guidance
+  - Removed ±200 Hz pitch modulation system
+  - Replaced with distinct, scientifically-designed audio profiles
+  - Each tone has unique frequency, duration, and envelope characteristics
+  - Provides clearer feedback without listener fatigue
+
+### Technical Implementation
+
+- **Enhanced TriangleWaveProvider**:
+  - New ADSR envelope support (Attack-Decay-Sustain-Release)
+  - Low-pass filter implementation around 1.8 kHz
+  - Frequency micro-glide support for smooth transitions
+  - Waveform selection (sine, triangle, rounded triangle blends)
+  - Relative amplitude/dB level support
+
+- **Enhanced DynAudioEng**:
+  - New tone profile system with all parameters per tone
+  - RPM rise rate tracking for intelligent audio stopping
+  - Separate audio logic paths for Standard and Performance Learning modes
+  - State-based audio control (no persistent timers)
+
+- **Enhanced PatternShift**:
+  - Cumulative off-track time tracking (improved from instance-based)
+  - Clearer lap validity reporting with off-track metrics
+
+### Performance & User Experience
+
+- **Audio is now scientifically tuned** for racing feedback without listener fatigue
+- **Tones stop naturally** when driver stops accelerating (real-world driving physics)
+- **Stricter off-track enforcement** aligns with actual racing regulations (3-second threshold)
+- **Cleaner tone design** with proper envelopes prevents jarring audio artifacts
+
+---
+
 ## [3.2.0] - 2025-10-27
 
 ### Added

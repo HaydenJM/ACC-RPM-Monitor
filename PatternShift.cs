@@ -135,9 +135,10 @@ public class PatternShift
         bool isValidByACC = wasLapValid;
 
         // Secondary validity check: Basic sanity checks on lap time and off-track
+        // Off-track limit: 3.0 seconds cumulative (≥50% off track) invalidates lap
         bool isValidByMetrics = lapTiming.LastLapTimeMs < int.MaxValue &&
                                 lapTiming.LastLapTimeMs > 0 &&
-                                _offTrackTime < 2.0f;
+                                _offTrackTime < 3.0f;
 
         var lapPerformance = new LapPerformance
         {

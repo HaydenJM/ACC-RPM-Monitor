@@ -28,6 +28,57 @@ public class DynAudioEng : IDisposable
     private AudioMode _currentMode = AudioMode.Standard;
     private int _recommendedShiftRPM = 0; // Used in Performance Learning mode
 
+    // Tone profiles for Performance Learning mode
+    private class ToneProfile
+    {
+        public float Frequency { get; set; }
+        public int DurationMs { get; set; }
+        public int AttackMs { get; set; }
+        public int DecayMs { get; set; }
+        public float DecayLevel { get; set; } // 0.0 to 1.0
+        public float RelativeDbLevel { get; set; } // Amplitude multiplier
+        public string WaveformType { get; set; } = "triangle"; // "sine", "triangle", "rounded"
+    }
+
+    // Performance Learning tone profiles: Too Early, Optimal, Too Late
+    private readonly ToneProfile _toneTooEarly = new()
+    {
+        Frequency = 950f,
+        DurationMs = 130,
+        AttackMs = 5,
+        DecayMs = 120,
+        DecayLevel = 0.60f,
+        RelativeDbLevel = 0.707f, // -3dB = 0.707 amplitude
+        WaveformType = "rounded"
+    };
+
+    private readonly ToneProfile _toneOptimal = new()
+    {
+        Frequency = 600f,
+        DurationMs = 140,
+        AttackMs = 5,
+        DecayMs = 135,
+        DecayLevel = 0.55f,
+        RelativeDbLevel = 1.0f, // 0dB = reference level
+        WaveformType = "sine"
+    };
+
+    private readonly ToneProfile _toneTooLate = new()
+    {
+        Frequency = 400f,
+        DurationMs = 150,
+        AttackMs = 5,
+        DecayMs = 145,
+        DecayLevel = 0.50f,
+        RelativeDbLevel = 0.794f, // -2dB = 0.794 amplitude
+        WaveformType = "triangle"
+    };
+
+    // Track performance learning audio state
+    private DateTime _performanceAudioStartTime = DateTime.MinValue;
+    private int _performanceAudioStartRPM = 0;
+    private float _lastRPMRate = 0f;
+
     public DynAudioEng()
     {
         _waveProvider = new TriangleWaveProvider();
@@ -159,62 +210,87 @@ public class DynAudioEng : IDisposable
     }
 
     /// <summary>
-    /// Performance Learning mode: Pitch-based guidance indicating shift earlier/later.
-    /// High pitch = shift earlier (you're too high), Low pitch = shift later (you're too low), Medium pitch = optimal.
+    /// Performance Learning mode: Tone-based guidance with distinct audio profiles.
+    /// - Too Early (950 Hz): Shift too late, needs earlier action
+    /// - Optimal (600 Hz): Within optimal range (±175 RPM)
+    /// - Too Late (400 Hz): Shift too early, needs later action
     /// </summary>
     private void UpdatePerformanceLearningAudio(int currentRPM, int threshold, int currentGear)
     {
         int warningDistance = 300; // Fixed distance for performance mode
         int rpmFromThreshold = currentRPM - threshold;
 
+        // Calculate RPM rate for intelligent audio stopping
+        _lastRPMRate = CalculateRPMRate();
+
         // Only play when within warning distance
-        if (rpmFromThreshold >= -warningDistance)
+        if (rpmFromThreshold >= -warningDistance && _recommendedShiftRPM > 0)
         {
-            // Calculate difference from recommended shift point
-            int rpmFromRecommended = currentRPM - _recommendedShiftRPM;
+            // Determine which tone to play based on RPM vs recommended shift point
+            ToneProfile toneToPlay;
 
-            // Base frequency for this gear
-            float baseFrequency = 500f + (currentGear - 1) * 100f;
-
-            // Modulate frequency based on recommendation:
-            // - Currently shifting too late (above recommended): Higher pitch = shift earlier!
-            // - Shifting at optimal point: Normal pitch
-            // - Currently shifting too early (below recommended): Lower pitch = shift later!
-
-            float frequency;
-            if (_recommendedShiftRPM == 0)
+            if (currentRPM > _recommendedShiftRPM + 175)
             {
-                // No recommendation yet - use normal frequency
-                frequency = baseFrequency;
-            }
-            else if (currentRPM > _recommendedShiftRPM + 175)
-            {
-                // Currently above recommended - HIGH pitch = shift earlier!
-                frequency = baseFrequency + 200f;
+                // Shifting too late - use "Too Early" tone (950 Hz)
+                toneToPlay = _toneTooEarly;
             }
             else if (currentRPM < _recommendedShiftRPM - 175)
             {
-                // Currently below recommended - LOW pitch = shift later!
-                frequency = baseFrequency - 200f;
+                // Shifting too early - use "Too Late" tone (400 Hz)
+                toneToPlay = _toneTooLate;
             }
             else
             {
-                // Within ±175 RPM of optimal - normal pitch (optimal zone)
-                frequency = baseFrequency;
+                // Within optimal range - use "Optimal" tone (600 Hz)
+                toneToPlay = _toneOptimal;
             }
 
-            _waveProvider.SetFrequency(frequency);
-            _waveProvider.SetBeeping(false, 0, 0); // Solid tone in performance mode
-
-            if (!_isPlaying)
+            // Check if audio should stop due to RPM rise rate dropping
+            const float RPMRateThresholdToStop = 50f; // RPM/sec below which we stop audio
+            if (_lastRPMRate < RPMRateThresholdToStop)
             {
-                _waveOut.Play();
-                _isPlaying = true;
+                Stop();
+                _performanceAudioStartTime = DateTime.MinValue;
+                return;
+            }
+
+            // Start new tone or continue current one
+            if (!_isPlaying || _performanceAudioStartTime == DateTime.MinValue)
+            {
+                _performanceAudioStartTime = DateTime.Now;
+                _performanceAudioStartRPM = currentRPM;
+                PlayTone(toneToPlay);
+            }
+            // Check if current tone duration has expired
+            else if ((DateTime.Now - _performanceAudioStartTime).TotalMilliseconds >= toneToPlay.DurationMs)
+            {
+                // Tone finished, stop audio and wait for next trigger
+                Stop();
+                _performanceAudioStartTime = DateTime.MinValue;
             }
         }
         else
         {
             Stop();
+            _performanceAudioStartTime = DateTime.MinValue;
+        }
+    }
+
+    /// <summary>
+    /// Plays a tone with the specified profile (frequency, duration, envelope, etc.)
+    /// </summary>
+    private void PlayTone(ToneProfile tone)
+    {
+        // Configure wave provider with tone parameters
+        _waveProvider.SetFrequency(tone.Frequency);
+        _waveProvider.SetToneProfile(tone.DurationMs, tone.AttackMs, tone.DecayMs,
+                                      tone.DecayLevel, tone.RelativeDbLevel, tone.WaveformType);
+        _waveProvider.SetBeeping(false, 0, 0); // Solid tone, no beeping pattern
+
+        if (!_isPlaying)
+        {
+            _waveOut.Play();
+            _isPlaying = true;
         }
     }
 
@@ -271,7 +347,8 @@ public class DynAudioEng : IDisposable
 }
 
 /// <summary>
-/// Generates triangle wave audio with configurable beeping patterns.
+/// Generates triangle/sine wave audio with ADSR envelope, low-pass filter, and micro-glide support.
+/// Supports both beeping patterns (Standard mode) and tone profiles (Performance Learning mode).
 /// </summary>
 internal class TriangleWaveProvider : ISampleProvider
 {
@@ -282,26 +359,73 @@ internal class TriangleWaveProvider : ISampleProvider
     private int _beepOffSamples;
     private int _samplesSinceBeepToggle;
     private bool _beepOn = true;
-    private const float Amplitude = 0.15f; // Constant volume
+    private const float BaseAmplitude = 0.15f; // Constant base volume
+
+    // Tone profile (ADSR + envelope)
+    private bool _useToneProfile = false;
+    private int _toneDurationSamples = 0;
+    private int _attackSamples = 0;
+    private int _decaySamples = 0;
+    private float _decayLevel = 1.0f;
+    private float _relativeDbLevel = 1.0f;
+    private int _samplesSinceToneStart = 0;
+    private string _waveformType = "triangle";
+
+    // Low-pass filter state
+    private float _filterState = 0f;
+    private const float FilterCutoffHz = 1800f; // Gentle roll-off around 1.8 kHz
+    private float _filterAlpha;
+
+    // Micro-glide for "too early" tone
+    private float _targetFrequency;
+    private float _glideRate = 0f;
 
     public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+
+    public TriangleWaveProvider()
+    {
+        // Calculate filter alpha for low-pass filter (1-pole RC filter)
+        float dt = 1f / WaveFormat.SampleRate;
+        _filterAlpha = (2f * MathF.PI * FilterCutoffHz * dt) / (1f + 2f * MathF.PI * FilterCutoffHz * dt);
+    }
 
     public void SetFrequency(float frequency)
     {
         _frequency = frequency;
+        _targetFrequency = frequency;
+    }
+
+    /// <summary>
+    /// Sets tone profile for Performance Learning mode with ADSR envelope.
+    /// </summary>
+    public void SetToneProfile(int durationMs, int attackMs, int decayMs, float decayLevel, float relativeDbLevel, string waveformType)
+    {
+        _useToneProfile = true;
+        _toneDurationSamples = (int)(durationMs * WaveFormat.SampleRate / 1000.0);
+        _attackSamples = (int)(attackMs * WaveFormat.SampleRate / 1000.0);
+        _decaySamples = (int)(decayMs * WaveFormat.SampleRate / 1000.0);
+        _decayLevel = decayLevel;
+        _relativeDbLevel = relativeDbLevel;
+        _waveformType = waveformType;
+        _samplesSinceToneStart = 0;
+
+        // For "Too Early" (950 Hz), setup micro-glide ±10 Hz over 100ms
+        if (MathF.Abs(_frequency - 950f) < 1f)
+        {
+            _targetFrequency = _frequency + 10f;
+            _glideRate = ((_targetFrequency - _frequency) / 100f) * (WaveFormat.SampleRate / 1000f); // Change per sample
+        }
     }
 
     /// <summary>
     /// Sets beeping pattern. If not beeping, plays solid tone.
     /// </summary>
-    /// <param name="isBeeping">Whether to beep or play solid tone</param>
-    /// <param name="beepOnMs">Duration of beep in milliseconds</param>
-    /// <param name="beepOffMs">Duration of silence in milliseconds</param>
     public void SetBeeping(bool isBeeping, int beepOnMs, int beepOffMs)
     {
         bool modeChanged = _isBeeping != isBeeping;
 
         _isBeeping = isBeeping;
+        _useToneProfile = false;
 
         if (isBeeping)
         {
@@ -322,8 +446,51 @@ internal class TriangleWaveProvider : ISampleProvider
         {
             float sample = 0f;
 
-            // Handle beeping mode
-            if (_isBeeping)
+            // Handle tone profile (Performance Learning mode)
+            if (_useToneProfile)
+            {
+                // Calculate envelope (ADSR)
+                float envelopeLevel = 1.0f;
+
+                if (_samplesSinceToneStart < _attackSamples)
+                {
+                    // Attack phase: ramp from 0 to 1
+                    envelopeLevel = (float)_samplesSinceToneStart / _attackSamples;
+                }
+                else if (_samplesSinceToneStart < _attackSamples + _decaySamples)
+                {
+                    // Decay phase: ramp from 1 to decay level
+                    int decayProgress = _samplesSinceToneStart - _attackSamples;
+                    envelopeLevel = 1.0f - ((1.0f - _decayLevel) * ((float)decayProgress / _decaySamples));
+                }
+                else
+                {
+                    // Sustain at decay level
+                    envelopeLevel = _decayLevel;
+                }
+
+                // Generate waveform
+                sample = GenerateWaveform(_waveformType, _phase) * envelopeLevel * _relativeDbLevel * BaseAmplitude;
+
+                // Apply low-pass filter
+                _filterState = (_filterState * (1f - _filterAlpha)) + (sample * _filterAlpha);
+                sample = _filterState;
+
+                // Apply micro-glide if enabled
+                if (_glideRate != 0f)
+                {
+                    _frequency += _glideRate;
+                    // Alternate glide direction after reaching target
+                    if ((_glideRate > 0 && _frequency >= _targetFrequency) || (_glideRate < 0 && _frequency <= _targetFrequency))
+                    {
+                        _glideRate = -_glideRate; // Reverse direction
+                    }
+                }
+
+                _samplesSinceToneStart++;
+            }
+            // Handle beeping mode (Standard mode)
+            else if (_isBeeping)
             {
                 _samplesSinceBeepToggle++;
 
@@ -343,18 +510,14 @@ internal class TriangleWaveProvider : ISampleProvider
                     buffer[offset + i] = 0f;
                     continue;
                 }
-            }
 
-            // Generate triangle wave sample (constant amplitude)
-            float phaseValue = _phase % 1.0f;
-
-            if (phaseValue < 0.5f)
-            {
-                sample = (phaseValue * 4f - 1f) * Amplitude;
+                // Generate triangle wave
+                sample = GenerateWaveform("triangle", _phase) * BaseAmplitude;
             }
             else
             {
-                sample = (3f - phaseValue * 4f) * Amplitude;
+                // Solid tone mode (no beeping)
+                sample = GenerateWaveform("triangle", _phase) * BaseAmplitude;
             }
 
             buffer[offset + i] = sample;
@@ -366,5 +529,29 @@ internal class TriangleWaveProvider : ISampleProvider
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// Generates waveform sample based on type: triangle, sine, or rounded (rounded triangle/sine blend)
+    /// </summary>
+    private float GenerateWaveform(string type, float phase)
+    {
+        float phaseValue = phase % 1.0f;
+
+        if (type == "sine")
+        {
+            return MathF.Sin(phaseValue * 2f * MathF.PI);
+        }
+        else if (type == "rounded")
+        {
+            // Blend of sine and triangle for smoother edges
+            float triangle = phaseValue < 0.5f ? (phaseValue * 4f - 1f) : (3f - phaseValue * 4f);
+            float sine = MathF.Sin(phaseValue * 2f * MathF.PI);
+            return (triangle * 0.6f) + (sine * 0.4f);
+        }
+        else // triangle (default)
+        {
+            return phaseValue < 0.5f ? (phaseValue * 4f - 1f) : (3f - phaseValue * 4f);
+        }
     }
 }
