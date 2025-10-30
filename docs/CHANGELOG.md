@@ -5,6 +5,51 @@ All notable changes to ACC RPM Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2025-10-29
+
+### Added
+
+- **Physics-Based Intelligent Shifting System**: Enhanced all modes with physics-based analysis
+  - OptimalShift: Filters straight-line acceleration only (throttle 85%+, RPM rising 100+/sec)
+  - PatternShift: Correlates shift patterns with lap performance
+  - PerformanceEng: Blends physics (40%) with performance data (60%) using confidence scoring
+  - Comprehensive documentation explaining intelligent filtering and analysis
+
+- **Feedback-Based Optimization Audio Mode**: Post-shift correction feedback
+  - SILENT during driving - feedback only AFTER you shift
+  - High pitch (950 Hz): Shifted too early - shift later next time
+  - NO SOUND: Perfect shift (within ±175 RPM of optimal)
+  - Low pitch (400 Hz): Shifted too late - shift earlier next time
+  - 200ms stabilization delay prevents feedback confusion
+  - Captures pre-shift RPM accurately using history buffer
+  - 450ms lockout prevents overlapping evaluations
+
+- **Real-Time Vehicle Change Detection**: Automatic monitoring and data collection halt
+  - Monitors vehicle name changes during all sessions
+  - Immediately stops monitoring when vehicle changes
+  - Halts data collection if vehicle switched mid-session
+  - Returns to main menu automatically
+  - Prevents incorrect data mixing between vehicles
+
+### Changed
+
+- **Auto Configuration Instructions**: Enhanced to emphasize full RPM range collection
+  - Clear guidance for straight-line acceleration runs
+  - Explains system needs high RPM data near redline per gear
+  - Documents automatic corner filtering
+
+- **Help Documentation**: Updated with physics-based system details
+  - Explains Feedback-Based Optimization mode
+  - Documents audio profiles (Normal/Endurance)
+  - Clarifies Performance Learning vs Feedback Optimization differences
+
+### Removed
+
+- Removed unused menu option (StartIPCServer)
+- Menu options renumbered 1-7
+
+---
+
 ## [3.4.0] - 2025-10-28
 
 ### Added

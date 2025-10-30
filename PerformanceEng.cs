@@ -1,8 +1,28 @@
 namespace ACCRPMMonitor;
 
 /// <summary>
-/// Machine learning engine that continuously optimizes shift points based on actual lap performance.
-/// Uses a weighted scoring system that balances theoretical acceleration curves with real-world results.
+/// INTELLIGENT PERFORMANCE LEARNING ENGINE
+///
+/// This engine combines physics-based shift point analysis with real-world lap performance
+/// to provide the most intelligent shift recommendations possible.
+///
+/// Philosophy:
+/// - Physics (OptimalShift) provides the "correct" shift point based on acceleration curves
+/// - Performance (PatternShift) validates and fine-tunes based on actual lap times
+/// - Confidence scoring increases as more data is collected
+///
+/// Weighting Strategy:
+/// - Initial: 40% Physics / 60% Performance (trust real-world results more)
+/// - As confidence grows: Physics weight decreases, Performance weight increases
+/// - At maximum confidence (20+ laps): ~25% Physics / ~75% Performance
+///
+/// This approach ensures:
+/// 1. You start with good physics-based shift points immediately
+/// 2. System learns from your actual performance to fine-tune
+/// 3. Shift points converge to what actually produces fastest lap times
+/// 4. Physics prevents the system from learning bad habits (if you shift poorly)
+///
+/// Requires minimum 2 valid laps to start providing performance-based adjustments.
 /// </summary>
 public class PerformanceEng
 {
@@ -13,7 +33,7 @@ public class PerformanceEng
     // Learning parameters
     private const float AccelerationWeight = 0.4f; // Weight for physics-based acceleration analysis
     private const float PerformanceWeight = 0.6f; // Weight for actual lap performance
-    private const int MinLapsForLearning = 3; // Minimum laps before adjusting from performance
+    private const int MinLapsForLearning = 2; // Minimum laps before adjusting from performance
     private const int MinShiftsPerGear = 5; // Minimum shifts per gear to learn from
 
     // Adaptive learning rate (starts conservative, increases with data confidence)
@@ -63,8 +83,10 @@ public class PerformanceEng
                 int performanceRPM = performanceBasedPoints[gear];
 
                 // Use weighted average with adaptive learning
-                float adjustedPerfWeight = PerformanceWeight * (1.0f + _learningRate);
-                float adjustedPhysWeight = AccelerationWeight * (1.0f - _learningRate * 0.5f);
+                // At maximum confidence (learningRate = 0.8): physics = 0.25, performance = 0.75
+                // At minimum confidence (learningRate = 0.2): physics = 0.4, performance = 0.6
+                float adjustedPerfWeight = PerformanceWeight + (_learningRate * 0.1875f);
+                float adjustedPhysWeight = AccelerationWeight - (_learningRate * 0.1875f);
                 float totalWeight = adjustedPerfWeight + adjustedPhysWeight;
 
                 int blendedRPM = (int)((physicsRPM * adjustedPhysWeight + performanceRPM * adjustedPerfWeight) / totalWeight);

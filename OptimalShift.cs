@@ -1,6 +1,22 @@
 namespace ACCRPMMonitor;
 
-// Analyzes telemetry data to find optimal shift points for each gear
+/// <summary>
+/// PHYSICS-BASED SHIFT POINT ANALYZER
+///
+/// This analyzer determines optimal shift points based on pure physics and acceleration data.
+/// It prioritizes STRAIGHT-LINE ACCELERATION to find the RPM where shifting provides better
+/// acceleration than staying in the current gear.
+///
+/// Key Intelligence Features:
+/// 1. Filters for straight-line acceleration only (excludes corners, maintenance throttle)
+/// 2. Calculates acceleration curves for each gear based on speed change over time
+/// 3. Estimates gear ratios by comparing RPM/speed relationships between gears
+/// 4. Finds the crossover point where next gear acceleration exceeds current gear
+/// 5. Optimized for SHORT-TERM acceleration (shift as soon as next gear is better)
+///
+/// This provides the "correct" shift point from a pure performance standpoint, which can then
+/// be validated or adjusted slightly based on user's actual lap time performance.
+/// </summary>
 public class OptimalShift
 {
     private readonly List<TelemetryDataPoint> _dataPoints = new();
@@ -13,12 +29,13 @@ public class OptimalShift
     private DateTime _lastDataPointTime = DateTime.MinValue;
 
     // Adds a telemetry data point during data collection
+    // INTELLIGENT FILTERING FOR STRAIGHT-LINE ACCELERATION ONLY
     public void AddDataPoint(int rpm, float throttle, float speed, int gear)
     {
-        // Filter out invalid data: ignore if speed is very low or throttle is too low
-        // Speed > 5 km/h filters out standing starts
-        // Speed 49-51 km/h filters out pit limiter activation
-        // Throttle >= 85% ensures we're accelerating hard
+        // PHYSICS-BASED FILTER #1: Minimum speed and throttle requirements
+        // Speed > 5 km/h filters out standing starts (launch control zone)
+        // Speed 49-51 km/h filters out pit limiter activation (not representative of performance)
+        // Throttle >= 85% ensures we're in full acceleration mode (not partial throttle corners)
         if (speed <= 5f || (speed >= 49f && speed <= 51f) || throttle < FullThrottleThreshold)
         {
             _lastRPM = rpm;
@@ -26,18 +43,23 @@ public class OptimalShift
             return;
         }
 
-        // ADDITIONAL FILTER: Only collect data when RPMs are actually RISING
-        // This prevents collecting corner data where throttle is high but you're maintaining RPM
+        // PHYSICS-BASED FILTER #2: Only collect data when RPMs are RISING (straight-line acceleration)
+        // This is CRITICAL for filtering out:
+        //   - Corner maintenance throttle (high throttle but constant RPM = cornering)
+        //   - Traction loss scenarios (wheel spin = RPM rises but not useful for shift points)
+        //   - Gear holding through corners (high throttle but maintaining speed/RPM)
+        // By requiring RPM rise rate >= 100 RPM/sec, we ensure we're only capturing
+        // true straight-line acceleration where the engine is pulling through the power band
         var now = DateTime.Now;
         if (_lastRPM != 0 && _lastDataPointTime != DateTime.MinValue)
         {
             var timeDelta = (now - _lastDataPointTime).TotalSeconds;
-            if (timeDelta > 0.01 && timeDelta < 1.0) // Valid time window
+            if (timeDelta > 0.01 && timeDelta < 1.0) // Valid time window (10ms to 1s between samples)
             {
                 var rpmRate = (rpm - _lastRPM) / timeDelta;
 
-                // Only collect data when RPMs are rising at least 100 RPM/sec
-                // This filters out corner maintenance throttle
+                // Require minimum 100 RPM/sec rise rate for straight-line acceleration detection
+                // This filters out corner maintenance throttle where RPM is constant or slowly changing
                 if (rpmRate < 100)
                 {
                     _lastRPM = rpm;
@@ -47,6 +69,7 @@ public class OptimalShift
             }
         }
 
+        // Data point passed all physics-based filters - this is valid straight-line acceleration data
         _dataPoints.Add(new TelemetryDataPoint
         {
             RPM = rpm,

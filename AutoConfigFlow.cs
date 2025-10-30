@@ -16,20 +16,31 @@ public static class AutoConfigFlow
         Console.WriteLine("  1. Load Monza or Paul Ricard in Assetto Corsa Competizione");
         Console.WriteLine("  2. Start a practice or hotlap session");
         Console.WriteLine("  3. Press F1 to START data collection");
-        Console.WriteLine("  4. RECOMMENDED: Do 3-4 full acceleration runs:");
-        Console.WriteLine("     - Start from slow corner or pit exit");
-        Console.WriteLine("     - Full throttle through gears 1→2→3→4→5");
-        Console.WriteLine("     - Let each gear reach high RPM before shifting");
-        Console.WriteLine("     - This captures acceleration curves for optimal shift points");
+        Console.WriteLine();
+        Console.WriteLine("  PHYSICS-BASED DATA COLLECTION:");
+        Console.WriteLine("  4. BEST METHOD: Do 3-4 full straight-line acceleration runs");
+        Console.WriteLine("     - Start from slow corner or pit exit (2nd gear)");
+        Console.WriteLine("     - Full throttle (85%+) through gears 1→2→3→4→5");
+        Console.WriteLine("     - Let each gear reach AS HIGH RPM AS POSSIBLE (near redline)");
+        Console.WriteLine("     - The app needs to see the FULL RPM RANGE per gear");
+        Console.WriteLine("     - Stay in straight line (avoid corners during acceleration)");
+        Console.WriteLine("     - This captures complete acceleration curves for intelligent analysis");
+        Console.WriteLine();
         Console.WriteLine("  5. ALTERNATIVE: Drive 2-3 fast laps with good straight acceleration");
+        Console.WriteLine("     - Ensure you reach high RPM in each gear on straights");
+        Console.WriteLine();
         Console.WriteLine("  6. Press F1 to STOP data collection when done");
-        Console.WriteLine("  7. The app will analyze the data and show results");
+        Console.WriteLine("  7. The app will analyze physics data and show results");
         Console.WriteLine();
         Console.WriteLine("Press any key to begin...");
         Console.ReadKey();
 
         var shiftAnalyzer = new OptimalShift();
         using var accMemory = new ACCSharedMemorySimple();
+        using var vehicleDetector = new VehicleDetector();
+        vehicleDetector.Connect();
+        string currentVehicleName = configManager.CurrentVehicleName;
+
         var currentConfig = configManager.LoadConfig();
         int maxGear = currentConfig.MaxGear > 0 ? currentConfig.MaxGear : 6; // Use config if set, otherwise will detect from ACC
         int detectedMaxGear = 6; // Will be updated as we detect gears in session
@@ -51,6 +62,16 @@ public static class AutoConfigFlow
 
         while (true)
         {
+            // Check for vehicle change
+            string? detectedVehicle = vehicleDetector.GetCarModel();
+            if (detectedVehicle != null && detectedVehicle != currentVehicleName)
+            {
+                Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
+                Console.WriteLine("Data collection stopped.");
+                Thread.Sleep(2000);
+                return;
+            }
+
             // Check for controls
             if (Console.KeyAvailable)
             {

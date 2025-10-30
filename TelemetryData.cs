@@ -49,6 +49,12 @@ public class TelemetryData
     [JsonPropertyName("audioMode")]
     public string AudioMode { get; set; } = "Standard";
 
+    [JsonPropertyName("collectionActive")]
+    public bool CollectionActive { get; set; } = false;
+
+    [JsonPropertyName("collectionDataPoints")]
+    public int CollectionDataPoints { get; set; } = 0;
+
     /// <summary>
     /// Serializes to JSON string for IPC transmission.
     /// </summary>

@@ -1,8 +1,21 @@
 namespace ACCRPMMonitor;
 
 /// <summary>
-/// Detects gear shifts and analyzes shift patterns in relation to lap performance.
-/// Correlates shift behavior with lap times and track position to optimize shift points.
+/// INTELLIGENT SHIFT PATTERN ANALYZER WITH LAP PERFORMANCE CORRELATION
+///
+/// This analyzer detects gear shifts and correlates shift patterns with lap performance.
+/// It works in conjunction with physics-based analysis (OptimalShift) to provide
+/// performance validation of shift points.
+///
+/// Key Intelligence Features:
+/// 1. Filters shifts to prioritize straight-line acceleration (requires throttle >= 30%)
+/// 2. Ignores low-RPM shifts (< 3000 RPM) which are typically braking/coasting downshifts
+/// 3. Tracks lap validity using ACC's is_valid_lap flag + off-track metrics
+/// 4. Groups shifts into RPM buckets (200 RPM ranges) and correlates with lap times
+/// 5. Identifies optimal shift points where faster lap times were achieved
+///
+/// This provides real-world validation of physics-based shift points, allowing the system
+/// to learn from actual performance rather than just theoretical acceleration curves.
 /// </summary>
 public class PatternShift
 {
@@ -54,13 +67,13 @@ public class PatternShift
             // Filter out invalid shifts (neutral, reverse, engine braking)
             if (_lastGear >= 1 && gear >= 1)
             {
-                // For upshifts, require minimum throttle
-                if (isUpshift && _lastThrottle >= MinThrottleForUpshift && _lastRPM >= MinRPMForShift)
+                // For upshifts, require minimum throttle and don't record shifts from 6th+ gear (no next gear)
+                if (isUpshift && _lastGear < 6 && _lastThrottle >= MinThrottleForUpshift && _lastRPM >= MinRPMForShift)
                 {
                     RecordShift(isUpshift, _lastGear, gear, _lastRPM, rpm, _lastSpeed, speed,
                                normalizedPosition, _lastThrottle);
                 }
-                // For downshifts, just check we're above minimum RPM
+                // For downshifts, just check we're above minimum RPM (can downshift from any gear)
                 else if (!isUpshift && rpm >= MinRPMForShift)
                 {
                     RecordShift(isUpshift, _lastGear, gear, _lastRPM, rpm, _lastSpeed, speed,

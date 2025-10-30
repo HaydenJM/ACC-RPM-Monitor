@@ -1,0 +1,70 @@
+## Summary
+
+This release introduces dual audio profiles (Normal and Endurance) for both Performance Learning and Adaptive modes, significantly lowered lap requirements for faster feedback, and major enhancements to Adaptive mode to match Performance Learning's capabilities.
+
+### Major Additions
+
+**Dual Audio Profiles for Performance Learning & Adaptive Modes**
+- **Normal Profile**: Responsive tones with higher frequencies for quick feedback
+  - Too Early: 950 Hz with -10 Hz descending glide over 100ms
+  - Optimal: 600 Hz pure sine
+  - Too Late: 400 Hz with -15 Hz descending glide
+- **Endurance Profile**: Low-fatigue tones designed for extended sessions
+  - Too Early: 650 Hz with -10 Hz descending glide over 60ms
+  - Optimal: 500 Hz pure sine
+  - Too Late: 400 Hz with -15 Hz descending glide over 120ms
+- Users select audio profile when entering either Performance Learning or Adaptive mode
+- Endurance profile uses all-sine waveforms for warmth and reduced listener fatigue
+
+**Lowered Minimum Lap Requirements**
+- Shift report generation: 2 valid laps (down from 5)
+- Shift point adjustment/saving: 3 valid laps (down from 5)
+- Enables faster feedback cycles and quicker learning validation
+- Users receive analysis recommendations after just 2 laps
+
+**Adaptive Mode Enhanced**
+- Now uses Performance Learning audio system with dual profiles (was Standard beeping)
+- Update interval reduced from 30 seconds to 15 seconds for faster adaptation
+- Same intuitive pitch-based audio guidance as Performance Learning mode
+- Provides quick, responsive learning option for shorter practice sessions
+
+### Technical Implementation
+
+**Audio System Enhancements**
+- Frequency glide support: Both too early and too late tones use descending glides
+- Glide timing configurable per tone profile (60ms, 100ms, 120ms options)
+- All-sine waveform profiles for reduced harshness in Endurance mode
+- Smooth frequency transitions with configurable glide rates
+
+**Mode Improvements**
+- Both Adaptive and Performance Learning modes now share the same sophisticated audio system
+- Clear user selection workflow: Choose mode → Select audio profile → Drive and learn
+- Consistent feedback across both learning modes
+
+**User Experience**
+- Help menu updated to document all audio profiles and mode features
+- On-screen recommendations at 2+ valid laps encouraging users to continue
+- Clear lap validity feedback (cumulative 3.0 second off-track threshold)
+- Dual-threshold system: Report at 2 laps, adjustment at 3 laps
+
+### Performance & User Experience
+
+- **Audio Profiles**: Users can choose between responsive or fatigue-resistant feedback
+- **Faster Results**: Analysis available after just 2 laps instead of 5
+- **Better Adaptation**: Adaptive mode updates every 15 seconds (was 30)
+- **Consistent Feedback**: Both learning modes now use identical pitch-based audio
+- **Flexible Learning**: Quick 2-lap analysis or refined 3+ lap optimization
+- **Reduced Fatigue**: Endurance profile specifically designed for long practice/race sessions
+
+### Files Modified
+
+- **DynAudioEng.cs**: Added AudioProfile enum, Endurance tone profiles, profile selection logic
+- **TriangleWaveProvider.cs**: Enhanced glide system supporting both positive and negative frequency shifts
+- **PatternShift.cs**: Lowered minimum valid laps to 2 for report generation
+- **Program.cs**: Audio profile selection menus for both Adaptive and Performance Learning modes, updated lap requirement handling
+- **ConfigUI.cs**: Updated Help menu with complete audio profile and feature documentation
+- **CHANGELOG.md**: Comprehensive v3.4.0 entry documenting all changes
+
+### Documentation
+
+- **ACCRPMMon_Primary_Algorithms.pdf**: Complete technical documentation of all primary algorithms (shift detection, lap analysis, audio feedback, RPM rate calculation, data quality metrics)

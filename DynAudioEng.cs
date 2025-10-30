@@ -21,8 +21,9 @@ public class DynAudioEng : IDisposable
     // Audio mode
     public enum AudioMode
     {
-        Standard,           // Progressive beeping (slow → fast → solid)
-        PerformanceLearning // Pitch-based guidance (low/high pitch for shift recommendation)
+        Standard,                  // Progressive beeping (slow → fast → solid)
+        PerformanceLearning,       // Pitch-based guidance (low/high pitch for shift recommendation)
+        FeedbackOptimization       // Post-shift feedback: two short beeps after shift (Early/OnTime/Late)
     }
 
     // Audio profile for Performance Learning mode
@@ -130,6 +131,33 @@ public class DynAudioEng : IDisposable
     private int _performanceAudioStartRPM = 0;
     private float _lastRPMRate = 0f;
 
+    // Post-shift evaluation model state
+    private int _shiftFromGear = 0; // Gear we shifted FROM (for tracking)
+    private int _shiftToGear = 0; // Gear we shifted TO
+    private int _shiftFromRPM = 0; // RPM at moment of gear change
+    private int _recommendedShiftRPMAtShift = 0; // Recommended RPM for the gear we shifted from
+
+    // Shift detection state machine
+    private enum ShiftEvaluationState
+    {
+        Idle,                    // No shift in progress
+        PredictionWindow,        // 100-150ms before predicted shift (optional)
+        DetectingGearChange,     // Waiting for telemetry to confirm gear change
+        StabilizingNewGear,      // 200ms stabilization window after gear confirmed
+        EvaluatingShiftQuality,  // Computing error and playing feedback tone
+        LockoutPeriod            // 400-500ms lockout to prevent overlaps
+    }
+
+    private ShiftEvaluationState _shiftEvalState = ShiftEvaluationState.Idle;
+    private DateTime _shiftStateChangeTime = DateTime.MinValue;
+    private int _lastGearForShiftDetection = 0; // Track for shift detection
+
+    // Timing constants for post-shift evaluation
+    private const int PreShiftPredictionMs = 125; // 100-150ms pre-shift cue (mid-range)
+    private const int GearStabilizationMs = 200; // Confirm new gear stable for 200ms
+    private const int ShiftLockoutMs = 450; // 400-500ms lockout (mid-range)
+    private const int ShiftDetectionTimeoutMs = 500; // Max time to detect gear change after prediction
+
     public DynAudioEng()
     {
         _waveProvider = new TriangleWaveProvider();
@@ -205,7 +233,11 @@ public class DynAudioEng : IDisposable
         }
 
         // Route to appropriate audio mode
-        if (_currentMode == AudioMode.PerformanceLearning)
+        if (_currentMode == AudioMode.FeedbackOptimization)
+        {
+            UpdateFeedbackOptimizationAudio(currentRPM, threshold, currentGear);
+        }
+        else if (_currentMode == AudioMode.PerformanceLearning)
         {
             UpdatePerformanceLearningAudio(currentRPM, threshold, currentGear);
         }
@@ -332,6 +364,146 @@ public class DynAudioEng : IDisposable
         {
             Stop();
             _performanceAudioStartTime = DateTime.MinValue;
+        }
+    }
+
+    /// <summary>
+    /// Feedback-Based Optimization mode: Post-shift evaluation with audio feedback.
+    ///
+    /// State flow:
+    /// 1. Idle - Normal driving, SILENT monitoring
+    /// 2. DetectingGearChange - Gear change detected via telemetry
+    /// 3. StabilizingNewGear - Wait 200ms for new gear to stabilize
+    /// 4. EvaluatingShiftQuality - Compute error and play feedback tone (if needed)
+    /// 5. LockoutPeriod - 400-500ms lockout to prevent overlaps
+    ///
+    /// Feedback tones indicate shift quality based on error:
+    /// - High Pitch (950 Hz) = Shifted too EARLY (before optimal, > -175 RPM)
+    /// - NO SOUND = Shifted at OPTIMAL time (within ±175 RPM) ✓ CORRECT!
+    /// - Low Pitch (400 Hz) = Shifted too LATE (after optimal, > +175 RPM)
+    ///
+    /// Key behavior: SILENT when shift is good, audio feedback only for corrections needed.
+    /// </summary>
+    private void UpdateFeedbackOptimizationAudio(int currentRPM, int threshold, int currentGear)
+    {
+        DateTime now = DateTime.Now;
+        double elapsedMs = (now - _shiftStateChangeTime).TotalMilliseconds;
+
+        // State machine for post-shift evaluation
+        switch (_shiftEvalState)
+        {
+            case ShiftEvaluationState.Idle:
+                // Monitor for upshift from gears 1-5 (skip 6th gear+)
+                if (currentGear > _lastGearForShiftDetection && _lastGearForShiftDetection > 0 && _lastGearForShiftDetection < 6)
+                {
+                    // Upshift detected! Capture shift data immediately
+                    // IMPORTANT: We're in the NEW gear now, but currentRPM hasn't updated yet from the last frame
+                    // So we need to use the RPM history to get the pre-shift RPM
+                    _shiftFromGear = _lastGearForShiftDetection;
+                    _shiftToGear = currentGear;
+
+                    // Get the RPM from before the gear change (use RPM history if available)
+                    if (_rpmHistory.Count > 0)
+                    {
+                        // Use the most recent RPM from history (before this frame)
+                        _shiftFromRPM = _rpmHistory.Last().rpm;
+                    }
+                    else
+                    {
+                        // Fallback to current RPM if no history
+                        _shiftFromRPM = currentRPM;
+                    }
+
+                    _recommendedShiftRPMAtShift = _recommendedShiftRPM;
+
+                    _shiftEvalState = ShiftEvaluationState.DetectingGearChange;
+                    _shiftStateChangeTime = now;
+                }
+                break;
+
+            case ShiftEvaluationState.DetectingGearChange:
+                // Wait for gear change to be fully confirmed via telemetry
+                // Once we see the new gear number confirmed, move to stabilization
+                if (currentGear == _shiftToGear)
+                {
+                    _shiftEvalState = ShiftEvaluationState.StabilizingNewGear;
+                    _shiftStateChangeTime = now;
+                    // Don't update _shiftFromRPM here - we already captured it in Idle state
+                }
+                // Timeout if gear change takes too long
+                else if (elapsedMs > ShiftDetectionTimeoutMs)
+                {
+                    _shiftEvalState = ShiftEvaluationState.Idle;
+                }
+                break;
+
+            case ShiftEvaluationState.StabilizingNewGear:
+                // Wait 200ms for new gear to stabilize before evaluating
+                if (elapsedMs >= GearStabilizationMs)
+                {
+                    _shiftEvalState = ShiftEvaluationState.EvaluatingShiftQuality;
+                    _shiftStateChangeTime = now;
+                }
+                break;
+
+            case ShiftEvaluationState.EvaluatingShiftQuality:
+                // Compute shift quality error
+                int shiftError = _shiftFromRPM - _recommendedShiftRPMAtShift;
+
+                // Only play feedback tone if shift was NOT optimal (outside ±175 RPM)
+                // Optimal shifts (within ±175 RPM) = SILENT (no tone = correct shift!)
+                if (Math.Abs(shiftError) > 175)
+                {
+                    ToneProfile feedbackTone = GetShiftQualityTone(_shiftFromRPM, _recommendedShiftRPMAtShift);
+                    PlayTone(feedbackTone);
+                }
+                // Otherwise stay silent - good shift!
+
+                _shiftEvalState = ShiftEvaluationState.LockoutPeriod;
+                _shiftStateChangeTime = now;
+                break;
+
+            case ShiftEvaluationState.LockoutPeriod:
+                // Lockout period (400-500ms) to prevent overlapping shift evaluations
+                if (elapsedMs >= ShiftLockoutMs)
+                {
+                    _shiftEvalState = ShiftEvaluationState.Idle;
+                }
+                // Stay silent during lockout
+                Stop();
+                break;
+        }
+
+        // Always stay silent except during EvaluatingShiftQuality (which plays the tone)
+        if (_shiftEvalState != ShiftEvaluationState.EvaluatingShiftQuality)
+        {
+            // Only stop if we're not already playing a tone
+            if (!_isPlaying || _shiftEvalState == ShiftEvaluationState.LockoutPeriod)
+            {
+                Stop();
+            }
+        }
+
+        _lastGearForShiftDetection = currentGear;
+    }
+
+    /// <summary>
+    /// Determines which tone profile to play based on shift quality.
+    /// Note: This should only be called when shift is NOT optimal (checked before calling).
+    /// </summary>
+    private ToneProfile GetShiftQualityTone(int shiftRPM, int recommendedRPM)
+    {
+        if (shiftRPM < recommendedRPM - 175)
+        {
+            // Shifted too early - use "Too Early" tone (high pitch, descending glide)
+            // Tells user to shift LATER next time
+            return _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
+        }
+        else // shiftRPM > recommendedRPM + 175
+        {
+            // Shifted too late - use "Too Late" tone (low pitch)
+            // Tells user to shift EARLIER next time
+            return _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooLate : _toneTooLate;
         }
     }
 

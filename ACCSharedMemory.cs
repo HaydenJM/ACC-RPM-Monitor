@@ -173,11 +173,27 @@ public class ACCSharedMemorySimple : IDisposable
             // Works reliably in practice/qualifying, less reliable in races
             int isValidLap = accessor.ReadInt32(1408);         // Offset 1408: is_valid_lap
 
+            // Parse lap times
+            var currentLapStr = ParseTimeString(currentTimeBytes);
+            var lastLapStr = ParseTimeString(lastTimeBytes);
+            var bestLapStr = ParseTimeString(bestTimeBytes);
+
+            // If string parsing failed, try to use the millisecond value for lastTime
+            // Format it as MM:SS.mmm
+            if (lastLapStr == "00:00.000" && lastTime > 0)
+            {
+                int totalSeconds = lastTime / 1000;
+                int minutes = totalSeconds / 60;
+                int seconds = totalSeconds % 60;
+                int milliseconds = lastTime % 1000;
+                lastLapStr = $"{minutes}:{seconds:D2}.{milliseconds:D3}";
+            }
+
             return new LapTimingData
             {
-                CurrentLapTime = ParseTimeString(currentTimeBytes),
-                LastLapTime = ParseTimeString(lastTimeBytes),
-                BestLapTime = ParseTimeString(bestTimeBytes),
+                CurrentLapTime = currentLapStr,
+                LastLapTime = lastLapStr,
+                BestLapTime = bestLapStr,
                 CompletedLaps = completedLaps,
                 LastLapTimeMs = lastTime,
                 IsCurrentLapValid = isValidLap != 0,
@@ -248,7 +264,20 @@ public class ACCSharedMemorySimple : IDisposable
             int length = (nullIndex >= 0) ? nullIndex : bytes.Length;
             string result = System.Text.Encoding.Unicode.GetString(bytes, 0, length);
 
-            return result.Length > 0 ? result : "00:00.000";
+            // Validate the result looks like a time (MM:SS.mmm format)
+            if (result.Length > 0 && result.Contains(":"))
+            {
+                // Check if it's a reasonable time format
+                // Valid times should have format like "1:23.456" or "12:34.567"
+                // and minutes should be reasonable (< 999)
+                var parts = result.Split(':');
+                if (parts.Length == 2 && int.TryParse(parts[0], out int minutes) && minutes < 999)
+                {
+                    return result;
+                }
+            }
+
+            return "00:00.000";
         }
         catch
         {
