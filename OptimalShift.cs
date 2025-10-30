@@ -479,22 +479,24 @@ public class OptimalShift
 
         report.GearAnalyses = gearAnalyses;
 
-        // Determine overall success: need all gears 1 to maxGear with sufficient confidence
-        report.OverallSuccess = successfulGears == maxGear;
+        // Determine overall success: need gears 1 to (maxGear-1) with shift points
+        // The highest gear doesn't need a shift point since there's no gear to shift into
+        int requiredGears = maxGear - 1;
+        report.OverallSuccess = successfulGears >= requiredGears;
 
         // Generate summary
         if (report.OverallSuccess)
         {
-            report.SessionSummary = $"SUCCESS: All {maxGear} gears have optimal shift points detected with sufficient confidence.";
+            report.SessionSummary = $"SUCCESS: All {requiredGears} shift gears (1-{requiredGears}) have optimal shift points detected with sufficient confidence.";
         }
         else
         {
-            int failedGears = maxGear - successfulGears;
-            report.SessionSummary = $"INCOMPLETE: {successfulGears}/{maxGear} gears successfully analyzed. {failedGears} gear(s) need more data.";
+            int failedGears = requiredGears - successfulGears;
+            report.SessionSummary = $"INCOMPLETE: {successfulGears}/{requiredGears} shift gears successfully analyzed. {failedGears} gear(s) need more data.";
         }
 
-        // Generate recommendations
-        foreach (var analysis in gearAnalyses.Where(a => !a.PassedConfidenceThreshold || !a.OptimalShiftRPM.HasValue))
+        // Generate recommendations (excluding highest gear - no shift point needed)
+        foreach (var analysis in gearAnalyses.Where(a => a.Gear < maxGear && (!a.PassedConfidenceThreshold || !a.OptimalShiftRPM.HasValue)))
         {
             if (!analysis.OptimalShiftRPM.HasValue)
             {
