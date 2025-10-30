@@ -113,6 +113,29 @@ public static class ConfigUI
             }
             else if (inputChar == 'A' && !string.IsNullOrEmpty(detectedVehicle))
             {
+                // Check if detected vehicle has a configuration
+                if (!configManager.VehicleExists(detectedVehicle))
+                {
+                    Console.WriteLine($"\nDetected vehicle '{detectedVehicle}' has no configuration.");
+                    Console.Write("Create configuration now? (Y/N): ");
+                    var createResponse = Console.ReadKey().KeyChar;
+                    Console.WriteLine();
+
+                    if (createResponse == 'Y' || createResponse == 'y')
+                    {
+                        configManager.SetVehicle(detectedVehicle);
+                        var config = GearRPMConfig.CreateDefault();
+                        configManager.SaveConfig(config);
+                        Console.WriteLine($"\nCreated new vehicle configuration: {detectedVehicle}");
+                        Thread.Sleep(1500);
+                        return;
+                    }
+                    else
+                    {
+                        continue; // Return to menu
+                    }
+                }
+
                 // Auto-select detected vehicle
                 configManager.SetVehicle(detectedVehicle);
                 Console.WriteLine($"\nSwitched to detected vehicle: {detectedVehicle}");

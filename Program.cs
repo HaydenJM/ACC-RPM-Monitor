@@ -34,6 +34,43 @@ if (vehicleDetector.Connect())
         configManager.SetVehicle(detectedVehicle);
     }
     vehicleDetector.Dispose();
+
+    // Check if detected vehicle exists in available vehicles list
+    if (!string.IsNullOrEmpty(detectedVehicle))
+    {
+        var availableVehicles = configManager.GetAvailableVehicles();
+        if (!availableVehicles.Contains(detectedVehicle))
+        {
+            Console.WriteLine($"\nDetected vehicle '{detectedVehicle}' has no configuration yet.");
+            Console.WriteLine();
+            Console.Write("Would you like to create a configuration for this vehicle? (Y/N): ");
+
+            var response = Console.ReadKey();
+            Console.WriteLine();
+
+            if (response.KeyChar == 'Y' || response.KeyChar == 'y')
+            {
+                Console.WriteLine($"\nCreating configuration for '{detectedVehicle}'...");
+
+                var defaultConfig = GearRPMConfig.CreateDefault();
+                configManager.SaveConfig(defaultConfig);
+
+                Console.WriteLine("Configuration created successfully!");
+                Console.WriteLine("\nYou can now:");
+                Console.WriteLine("  1. Create Auto Configuration (recommended) - Learn optimal shift points");
+                Console.WriteLine("  2. Edit Manual Configuration - Set custom shift points");
+                Console.WriteLine();
+                Console.WriteLine("Press any key to continue to main menu...");
+                Console.ReadKey();
+            }
+            else
+            {
+                Console.WriteLine("\nContinuing with current vehicle. You can create a configuration later");
+                Console.WriteLine("from the main menu.");
+                Thread.Sleep(2000);
+            }
+        }
+    }
 }
 
 // If no vehicles exist, create a default one
