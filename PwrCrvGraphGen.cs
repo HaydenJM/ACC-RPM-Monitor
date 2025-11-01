@@ -42,6 +42,7 @@ public static class PwrCrvGraphGen
         plot.XLabel("RPM");
         plot.YLabel("Acceleration (m/s²)");
         plot.Legend.IsVisible = true;
+        plot.Legend.Alignment = Alignment.LowerLeft;
 
         // Color palette for gears
         Color[] gearColors =
@@ -215,6 +216,7 @@ public static class PwrCrvGraphGen
         plot.XLabel("RPM");
         plot.YLabel("Acceleration (m/s²)");
         plot.Legend.IsVisible = true;
+        plot.Legend.Alignment = Alignment.LowerLeft;
 
         // Color palette for gears
         Color[] gearColors =
