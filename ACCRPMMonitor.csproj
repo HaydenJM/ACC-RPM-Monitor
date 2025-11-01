@@ -3,15 +3,35 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="SharpDX.DirectInput" Version="4.2.0" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="ScottPlot" Version="5.0.57" />
+  </ItemGroup>
+
+  <!-- Copy Streamlit dashboard folder to output directory -->
+  <ItemGroup>
+    <None Include="streamlit_dashboard\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Exclude reference files and test projects from compilation -->
+  <ItemGroup>
+    <Compile Remove="ref\**" />
+    <EmbeddedResource Remove="ref\**" />
+    <None Remove="ref\**" />
+    <Compile Remove="telemetry_test\**" />
+    <EmbeddedResource Remove="telemetry_test\**" />
+    <None Remove="telemetry_test\**" />
   </ItemGroup>
 
 </Project>

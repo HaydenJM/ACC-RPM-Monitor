@@ -4,7 +4,7 @@ namespace ACCRPMMonitor;
 public static class ConfigUI
 {
     // Main menu - entry point for the application
-    public static MainMenuChoice ShowMainMenu(ConfigMan configManager)
+    public static MainMenuChoice ShowMainMenu(ConfigMan configManager, bool telemetryRunning)
     {
         while (true)
         {
@@ -14,6 +14,11 @@ public static class ConfigUI
             Console.WriteLine("=".PadRight(80, '='));
             Console.WriteLine();
             Console.WriteLine($"Current Vehicle: {configManager.CurrentVehicleName}");
+            Console.WriteLine($"Current Track:   {configManager.CurrentTrackName}");
+            if (telemetryRunning)
+            {
+                Console.WriteLine($"Telemetry:       ✓ RUNNING (Dashboard: http://localhost:8501)");
+            }
             Console.WriteLine();
             Console.WriteLine("Main Menu:");
             Console.WriteLine();
@@ -26,26 +31,38 @@ public static class ConfigUI
             Console.WriteLine("  [3] Select & Use Configuration (Start Monitoring)");
             Console.WriteLine("      Choose a config and start the RPM monitor");
             Console.WriteLine();
-            Console.WriteLine("  [4] Change Vehicle");
+
+            if (telemetryRunning)
+            {
+                Console.WriteLine("  [4] Stop Telemetry Server");
+                Console.WriteLine("      Stop the telemetry server and close the dashboard");
+            }
+            else
+            {
+                Console.WriteLine("  [4] Start Telemetry Server");
+                Console.WriteLine("      Launch telemetry server for real-time tire data visualization");
+            }
+            Console.WriteLine();
+            Console.WriteLine("  [5] Change Vehicle");
             Console.WriteLine("      Switch to a different vehicle");
             Console.WriteLine();
-            Console.WriteLine("  [5] Open Data Folder");
+            Console.WriteLine("  [6] Open Data Folder");
             Console.WriteLine("      Open the data folder (configs, reports, graphs) in File Explorer");
             Console.WriteLine();
-            Console.WriteLine("  [6] Help");
+            Console.WriteLine("  [7] Help");
             Console.WriteLine("      Learn how to use the application");
             Console.WriteLine();
-            Console.WriteLine("  [7] Exit");
+            Console.WriteLine("  [8] Exit");
             Console.WriteLine();
 
-            Console.Write("Select option (1-7): ");
+            Console.Write("Select option (1-8): ");
             string? input = Console.ReadLine();
 
             if (string.IsNullOrWhiteSpace(input))
                 continue;
 
             // Check for number keys
-            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 7)
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= 8)
             {
                 return (MainMenuChoice)choice;
             }
@@ -521,8 +538,9 @@ public enum MainMenuChoice
     CreateAutoConfig = 1,
     CreateManualConfig = 2,
     SelectAndUseConfig = 3,
-    ChangeVehicle = 4,
-    OpenConfigFolder = 5,
-    Help = 6,
-    Exit = 7
+    ToggleTelemetry = 4,
+    ChangeVehicle = 5,
+    OpenConfigFolder = 6,
+    Help = 7,
+    Exit = 8
 }

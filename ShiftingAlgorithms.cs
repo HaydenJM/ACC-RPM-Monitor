@@ -1,0 +1,1440 @@
+﻿namespace ACCRPMMonitor;
+
+/// <summary>
+/// PHYSICS-BASED SHIFT POINT ANALYZER
+///
+/// This analyzer determines optimal shift points based on pure physics and acceleration data.
+/// It prioritizes STRAIGHT-LINE ACCELERATION to find the RPM where shifting provides better
+/// acceleration than staying in the current gear.
+///
+/// Key Intelligence Features:
+/// 1. Filters for straight-line acceleration only (excludes corners, maintenance throttle)
+/// 2. Calculates acceleration curves for each gear based on speed change over time
+/// 3. Estimates gear ratios by comparing RPM/speed relationships between gears
+/// 4. Finds the crossover point where next gear acceleration exceeds current gear
+/// 5. Optimized for SHORT-TERM acceleration (shift as soon as next gear is better)
+///
+/// This provides the "correct" shift point from a pure performance standpoint, which can then
+/// be validated or adjusted slightly based on user's actual lap time performance.
+/// </summary>
+public class OptimalShift
+{
+    private readonly List<TelemetryDataPoint> _dataPoints = new();
+    private const float FullThrottleThreshold = 0.85f; // Lowered from 0.95f - 85% throttle is more realistic
+    private const int MinDataPointsPerGear = 30; // Lowered from 50 - need less data to be confident
+    private const float MinConfidenceThreshold = 0.50f; // Minimum acceptable confidence
+    private DateTime _sessionStart = DateTime.Now;
+
+    private int _lastRPM = 0;
+    private DateTime _lastDataPointTime = DateTime.MinValue;
+
+    // Adds a telemetry data point during data collection
+    // INTELLIGENT FILTERING FOR STRAIGHT-LINE ACCELERATION ONLY
+    public void AddDataPoint(int rpm, float throttle, float speed, int gear)
+    {
+        // PHYSICS-BASED FILTER #1: Minimum speed and throttle requirements
+        // Speed > 5 km/h filters out standing starts (launch control zone)
+        // Speed 49-51 km/h filters out pit limiter activation (not representative of performance)
+        // Throttle >= 85% ensures we're in full acceleration mode (not partial throttle corners)
+        if (speed <= 5f || (speed >= 49f && speed <= 51f) || throttle < FullThrottleThreshold)
+        {
+            _lastRPM = rpm;
+            _lastDataPointTime = DateTime.Now;
+            return;
+        }
+
+        // PHYSICS-BASED FILTER #2: Only collect data when RPMs are RISING (straight-line acceleration)
+        // This is CRITICAL for filtering out:
+        //   - Corner maintenance throttle (high throttle but constant RPM = cornering)
+        //   - Traction loss scenarios (wheel spin = RPM rises but not useful for shift points)
+        //   - Gear holding through corners (high throttle but maintaining speed/RPM)
+        // By requiring RPM rise rate >= 100 RPM/sec, we ensure we're only capturing
+        // true straight-line acceleration where the engine is pulling through the power band
+        var now = DateTime.Now;
+        if (_lastRPM != 0 && _lastDataPointTime != DateTime.MinValue)
+        {
+            var timeDelta = (now - _lastDataPointTime).TotalSeconds;
+            if (timeDelta > 0.01 && timeDelta < 1.0) // Valid time window (10ms to 1s between samples)
+            {
+                var rpmRate = (rpm - _lastRPM) / timeDelta;
+
+                // Require minimum 100 RPM/sec rise rate for straight-line acceleration detection
+                // This filters out corner maintenance throttle where RPM is constant or slowly changing
+                if (rpmRate < 100)
+                {
+                    _lastRPM = rpm;
+                    _lastDataPointTime = now;
+                    return;
+                }
+            }
+        }
+
+        // Data point passed all physics-based filters - this is valid straight-line acceleration data
+        _dataPoints.Add(new TelemetryDataPoint
+        {
+            RPM = rpm,
+            Throttle = throttle,
+            Speed = speed,
+            Gear = gear,
+            Timestamp = now
+        });
+
+        _lastRPM = rpm;
+        _lastDataPointTime = now;
+    }
+
+    // Finds the optimal upshift RPM for a specific gear based on acceleration optimization
+    public int? CalculateOptimalUpshiftRPM(int gear)
+    {
+        // Get all full-throttle data points for this gear and the next gear
+        var currentGearData = _dataPoints
+            .Where(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold)
+            .OrderBy(p => p.Timestamp)
+            .ToList();
+
+        var nextGearData = _dataPoints
+            .Where(p => p.Gear == gear + 1 && p.Throttle >= FullThrottleThreshold)
+            .OrderBy(p => p.Timestamp)
+            .ToList();
+
+        if (currentGearData.Count < MinDataPointsPerGear)
+            return null; // Not enough data for current gear
+
+        // Calculate acceleration rates for current gear at different RPM levels
+        var currentGearAccel = CalculateAccelerationByRPM(currentGearData);
+
+        if (currentGearAccel.Count == 0)
+            return null;
+
+        // If we don't have next gear data, fall back to max speed method
+        if (nextGearData.Count < MinDataPointsPerGear)
+        {
+            return CalculateOptimalUpshiftRPM_MaxSpeedFallback(currentGearData);
+        }
+
+        // Calculate acceleration rates for next gear
+        var nextGearAccel = CalculateAccelerationByRPM(nextGearData);
+
+        if (nextGearAccel.Count == 0)
+        {
+            return CalculateOptimalUpshiftRPM_MaxSpeedFallback(currentGearData);
+        }
+
+        // Estimate gear ratio between current and next gear
+        float gearRatio = EstimateGearRatio(currentGearData, nextGearData);
+
+        if (gearRatio <= 0)
+        {
+            return CalculateOptimalUpshiftRPM_MaxSpeedFallback(currentGearData);
+        }
+
+        // Find the RPM where staying in current gear gives worse acceleration than shifting
+        int? optimalShiftPoint = FindAccelerationCrossoverPoint(
+            currentGearAccel,
+            nextGearAccel,
+            gearRatio
+        );
+
+        if (optimalShiftPoint.HasValue)
+        {
+            return optimalShiftPoint;
+        }
+
+        // Fallback to max speed method if acceleration-based method fails
+        return CalculateOptimalUpshiftRPM_MaxSpeedFallback(currentGearData);
+    }
+
+    // Fallback method: finds shift point based on maximum speed achieved
+    // For cars that accelerate well to redline, shift near the top of the rev range
+    private int? CalculateOptimalUpshiftRPM_MaxSpeedFallback(List<TelemetryDataPoint> gearData)
+    {
+        if (gearData.Count == 0)
+            return null;
+
+        // Find the maximum RPM and speed achieved in this gear
+        int maxRPM = gearData.Max(p => p.RPM);
+        float maxSpeed = gearData.Max(p => p.Speed);
+
+        // Check if acceleration continues strongly near redline
+        // by looking at speed achieved in the top 10% of RPM range
+        var topRPMData = gearData.Where(p => p.RPM >= maxRPM * 0.90f).ToList();
+
+        if (topRPMData.Count > 0)
+        {
+            float topRPMAvgSpeed = topRPMData.Average(p => p.Speed);
+
+            // If speed near redline is close to max speed, the car accelerates well to redline
+            if (topRPMAvgSpeed >= maxSpeed * 0.95f)
+            {
+                // Shift at 98% of max RPM observed (near redline)
+                return (int)(maxRPM * 0.98f);
+            }
+        }
+
+        // Otherwise, find where acceleration starts to drop off
+        // This is the highest RPM that still achieves at least 99% of max speed
+        var optimalPoint = gearData
+            .Where(p => p.Speed >= maxSpeed * 0.99f)
+            .OrderByDescending(p => p.RPM)  // Changed to OrderByDescending - use HIGHEST RPM, not lowest
+            .FirstOrDefault();
+
+        return optimalPoint?.RPM;
+    }
+
+    // Calculates acceleration (speed change over time) grouped by RPM ranges
+    private Dictionary<int, float> CalculateAccelerationByRPM(List<TelemetryDataPoint> gearData)
+    {
+        var accelerationByRPM = new Dictionary<int, List<float>>();
+        const int rpmBucketSize = 100; // Group by 100 RPM buckets
+        const float minTimeDelta = 0.01f; // Minimum 10ms between samples
+
+        // Calculate acceleration between consecutive points
+        for (int i = 1; i < gearData.Count; i++)
+        {
+            var prev = gearData[i - 1];
+            var curr = gearData[i];
+
+            float timeDelta = (float)(curr.Timestamp - prev.Timestamp).TotalSeconds;
+
+            // Skip if time delta is too small or negative (could be from different laps)
+            if (timeDelta < minTimeDelta || timeDelta > 1.0f)
+                continue;
+
+            float speedDelta = curr.Speed - prev.Speed;
+
+            // Only consider positive acceleration (ignore braking/coasting)
+            if (speedDelta <= 0)
+                continue;
+
+            float acceleration = speedDelta / timeDelta;
+
+            // Bucket by RPM (use average RPM of the two points)
+            int avgRPM = (prev.RPM + curr.RPM) / 2;
+            int rpmBucket = (avgRPM / rpmBucketSize) * rpmBucketSize;
+
+            if (!accelerationByRPM.ContainsKey(rpmBucket))
+                accelerationByRPM[rpmBucket] = new List<float>();
+
+            accelerationByRPM[rpmBucket].Add(acceleration);
+        }
+
+        // Average the acceleration values in each bucket
+        return accelerationByRPM
+            .Where(kvp => kvp.Value.Count >= 3) // Need at least 3 samples per bucket
+            .ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.Average()
+            );
+    }
+
+    // Estimates the gear ratio between current and next gear based on RPM/Speed relationship
+    private float EstimateGearRatio(List<TelemetryDataPoint> currentGearData, List<TelemetryDataPoint> nextGearData)
+    {
+        // Find overlapping speed ranges between the two gears
+        float currentMinSpeed = currentGearData.Min(p => p.Speed);
+        float currentMaxSpeed = currentGearData.Max(p => p.Speed);
+        float nextMinSpeed = nextGearData.Min(p => p.Speed);
+        float nextMaxSpeed = nextGearData.Max(p => p.Speed);
+
+        // Find the overlapping speed range
+        float overlapMin = Math.Max(currentMinSpeed, nextMinSpeed);
+        float overlapMax = Math.Min(currentMaxSpeed, nextMaxSpeed);
+
+        if (overlapMin >= overlapMax)
+            return 0; // No overlap
+
+        // Get RPM/Speed ratios in the overlap region
+        var currentRatios = currentGearData
+            .Where(p => p.Speed >= overlapMin && p.Speed <= overlapMax)
+            .Select(p => p.RPM / p.Speed)
+            .ToList();
+
+        var nextRatios = nextGearData
+            .Where(p => p.Speed >= overlapMin && p.Speed <= overlapMax)
+            .Select(p => p.RPM / p.Speed)
+            .ToList();
+
+        if (currentRatios.Count == 0 || nextRatios.Count == 0)
+            return 0;
+
+        float avgCurrentRatio = currentRatios.Average();
+        float avgNextRatio = nextRatios.Average();
+
+        // Gear ratio is how much RPM drops when shifting
+        return avgCurrentRatio / avgNextRatio;
+    }
+
+    // Finds the RPM where acceleration in next gear would be better than current gear
+    private int? FindAccelerationCrossoverPoint(
+        Dictionary<int, float> currentGearAccel,
+        Dictionary<int, float> nextGearAccel,
+        float gearRatio)
+    {
+        int? bestShiftPoint = null;
+        float bestAdvantageMargin = 0;
+
+        // Adaptive threshold: check if current gear pulls strongly to high RPM
+        // GT3 cars typically pull well to redline, so default to stricter threshold
+        var maxRPM = currentGearAccel.Keys.Max();
+        var minRPM = currentGearAccel.Keys.Min();
+        var rpmRange = maxRPM - minRPM;
+
+        // Check acceleration behavior in top 20% of RPM range
+        var topRPMThreshold = maxRPM - (rpmRange * 0.2f);
+        // Optimized for SHORT-TERM acceleration: shift as soon as next gear becomes meaningfully better
+        // Lower threshold = earlier shifts = maximize instantaneous acceleration
+        const float minimumAdvantageThreshold = 0.03f; // 3% advantage is sufficient for short-term optimization
+
+        // Find the FIRST RPM where next gear provides meaningful advantage
+        // This prioritizes short-term acceleration over holding gears to redline
+        foreach (var currentRPM in currentGearAccel.Keys.OrderBy(k => k))
+        {
+            float currentAcceleration = currentGearAccel[currentRPM];
+
+            // Calculate what RPM we'd be at in next gear after shifting
+            int nextGearRPM = (int)(currentRPM / gearRatio);
+
+            // Find the closest RPM bucket in next gear data
+            var closestNextGearRPM = nextGearAccel.Keys
+                .OrderBy(rpm => Math.Abs(rpm - nextGearRPM))
+                .FirstOrDefault();
+
+            if (closestNextGearRPM == 0)
+                continue;
+
+            // Only consider if we're within reasonable range (Â±75 RPM)
+            if (Math.Abs(closestNextGearRPM - nextGearRPM) > 75)
+                continue;
+
+            float nextGearAcceleration = nextGearAccel[closestNextGearRPM];
+
+            // Calculate acceleration advantage as a percentage
+            float advantageRatio = (nextGearAcceleration - currentAcceleration) / currentAcceleration;
+
+            // Find the first point where next gear becomes meaningfully better
+            // This maximizes short-term acceleration by shifting as soon as it's beneficial
+            if (advantageRatio > minimumAdvantageThreshold && advantageRatio > bestAdvantageMargin)
+            {
+                bestAdvantageMargin = advantageRatio;
+                bestShiftPoint = currentRPM;
+            }
+        }
+
+        return bestShiftPoint;
+    }
+
+    // Calculates optimal downshift RPM for a gear
+    public int? CalculateOptimalDownshiftRPM(int fromGear, int toGear)
+    {
+        if (toGear >= fromGear)
+            return null;
+
+        // Get upshift point for the lower gear
+        var upshiftRPM = CalculateOptimalUpshiftRPM(toGear);
+        if (upshiftRPM == null)
+            return null;
+
+        // Downshift target should be about 70% of the upshift point
+        // This keeps you in the power band after downshifting
+        return (int)(upshiftRPM * 0.7f);
+    }
+
+    // Analyzes all collected data and generates optimal config
+    public OptimalShiftConfig? GenerateOptimalConfig()
+    {
+        var config = new OptimalShiftConfig
+        {
+            LastUpdated = DateTime.Now,
+            TotalDataPoints = _dataPoints.Count
+        };
+
+        // Calculate optimal shift points for each gear
+        for (int gear = 1; gear <= 8; gear++)
+        {
+            var upshiftRPM = CalculateOptimalUpshiftRPM(gear);
+            if (upshiftRPM.HasValue)
+            {
+                config.OptimalUpshiftRPM[gear] = upshiftRPM.Value;
+
+                // Calculate confidence based on data quantity
+                var gearDataCount = _dataPoints.Count(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold);
+                config.DataConfidence[gear] = CalculateConfidence(gearDataCount);
+            }
+
+            // Store acceleration curves for visualization
+            var gearData = _dataPoints
+                .Where(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold)
+                .OrderBy(p => p.Timestamp)
+                .ToList();
+
+            if (gearData.Count >= MinDataPointsPerGear)
+            {
+                var accelCurve = CalculateAccelerationByRPM(gearData);
+                if (accelCurve.Count > 0)
+                {
+                    config.AccelerationCurves[gear] = accelCurve;
+                }
+            }
+
+            // Calculate and store gear ratios
+            if (gear < 8)
+            {
+                var nextGearData = _dataPoints
+                    .Where(p => p.Gear == gear + 1 && p.Throttle >= FullThrottleThreshold)
+                    .OrderBy(p => p.Timestamp)
+                    .ToList();
+
+                if (gearData.Count >= MinDataPointsPerGear && nextGearData.Count >= MinDataPointsPerGear)
+                {
+                    float gearRatio = EstimateGearRatio(gearData, nextGearData);
+                    if (gearRatio > 0)
+                    {
+                        config.GearRatios[gear] = gearRatio;
+                    }
+                }
+            }
+        }
+
+        // Only return if we have data for at least 3 gears
+        if (config.OptimalUpshiftRPM.Count < 3)
+            return null;
+
+        return config;
+    }
+
+    // Calculates confidence level based on number of data points with explanation
+    private (float score, string reason) CalculateConfidenceWithReason(int dataPoints)
+    {
+        if (dataPoints < MinDataPointsPerGear)
+            return (0f, $"Insufficient data: only {dataPoints} points (need at least {MinDataPointsPerGear})");
+        if (dataPoints < 60)
+            return (0.6f, $"Acceptable confidence: {dataPoints} points (sufficient data collected)");
+        if (dataPoints < 120)
+            return (0.8f, $"Good confidence: {dataPoints} points (good data collected)");
+        return (1.0f, $"High confidence: {dataPoints} points (abundant data collected)");
+    }
+
+    // Calculates confidence level based on number of data points
+    private float CalculateConfidence(int dataPoints)
+    {
+        return CalculateConfidenceWithReason(dataPoints).score;
+    }
+
+    // Returns averaged/smoothed data per gear for visualization
+    public List<TelemetryDataPoint> GetSmoothedDataForGear(int gear, int bucketSize = 100)
+    {
+        var gearData = _dataPoints
+            .Where(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold)
+            .GroupBy(p => (p.RPM / bucketSize) * bucketSize)
+            .Select(g => new TelemetryDataPoint
+            {
+                RPM = g.Key,
+                Speed = g.Average(p => p.Speed),
+                Throttle = 1.0f,
+                Gear = gear,
+                Timestamp = g.First().Timestamp
+            })
+            .OrderBy(p => p.RPM)
+            .ToList();
+
+        return gearData;
+    }
+
+    public void Clear()
+    {
+        _dataPoints.Clear();
+        _sessionStart = DateTime.Now;
+    }
+
+    public int GetDataPointCount() => _dataPoints.Count;
+
+    // Gets data point count for a specific gear
+    public int GetDataPointCountForGear(int gear) =>
+        _dataPoints.Count(p => p.Gear == gear && p.Throttle >= FullThrottleThreshold);
+
+    // Generates a detailed data collection report for gears 1 to maxGear
+    public DataReport GenerateDetailedReport(string vehicleName, int maxGear = 6)
+    {
+        var report = new DataReport
+        {
+            SessionStart = _sessionStart,
+            SessionEnd = DateTime.Now,
+            VehicleName = vehicleName,
+            TotalDataPoints = _dataPoints.Count
+        };
+
+        var gearAnalyses = new List<DataReport.GearAnalysis>();
+        int successfulGears = 0;
+
+        // Analyze gears 1 to maxGear
+        for (int gear = 1; gear <= maxGear; gear++)
+        {
+            var analysis = AnalyzeGear(gear);
+            gearAnalyses.Add(analysis);
+            if (analysis.PassedConfidenceThreshold && analysis.OptimalShiftRPM.HasValue)
+            {
+                successfulGears++;
+            }
+        }
+
+        report.GearAnalyses = gearAnalyses;
+
+        // Determine overall success: need gears 1 to (maxGear-1) with shift points
+        // The highest gear doesn't need a shift point since there's no gear to shift into
+        int requiredGears = maxGear - 1;
+        report.OverallSuccess = successfulGears >= requiredGears;
+
+        // Generate summary
+        if (report.OverallSuccess)
+        {
+            report.SessionSummary = $"SUCCESS: All {requiredGears} shift gears (1-{requiredGears}) have optimal shift points detected with sufficient confidence.";
+        }
+        else
+        {
+            int failedGears = requiredGears - successfulGears;
+            report.SessionSummary = $"INCOMPLETE: {successfulGears}/{requiredGears} shift gears successfully analyzed. {failedGears} gear(s) need more data.";
+        }
+
+        // Generate recommendations (excluding highest gear - no shift point needed)
+        foreach (var analysis in gearAnalyses.Where(a => a.Gear < maxGear && (!a.PassedConfidenceThreshold || !a.OptimalShiftRPM.HasValue)))
+        {
+            if (!analysis.OptimalShiftRPM.HasValue)
+            {
+                report.Recommendations.Add($"Gear {analysis.Gear}: Could not detect optimal shift point. Make sure to reach near redline in this gear during full throttle.");
+            }
+            else if (analysis.ConfidenceScore < MinConfidenceThreshold)
+            {
+                report.Recommendations.Add($"Gear {analysis.Gear}: Need more full-throttle data points (currently {analysis.FullThrottleDataPoints}, need at least {MinDataPointsPerGear}).");
+            }
+        }
+
+        if (!report.OverallSuccess)
+        {
+            report.Recommendations.Add("Perform another hotlap focusing on the gears that failed, making sure to redline each gear under full throttle.");
+        }
+
+        return report;
+    }
+
+    // Analyzes a specific gear in detail
+    private DataReport.GearAnalysis AnalyzeGear(int gear)
+    {
+        var allGearData = _dataPoints.Where(p => p.Gear == gear).ToList();
+        var fullThrottleData = allGearData.Where(p => p.Throttle >= FullThrottleThreshold).ToList();
+
+        var analysis = new DataReport.GearAnalysis
+        {
+            Gear = gear,
+            TotalDataPoints = allGearData.Count,
+            FullThrottleDataPoints = fullThrottleData.Count
+        };
+
+        if (fullThrottleData.Count > 0)
+        {
+            analysis.MinRPM = fullThrottleData.Min(p => p.RPM);
+            analysis.MaxRPM = fullThrottleData.Max(p => p.RPM);
+            analysis.MinSpeed = fullThrottleData.Min(p => p.Speed);
+            analysis.MaxSpeed = fullThrottleData.Max(p => p.Speed);
+
+            // Calculate RPM distribution (100 RPM buckets)
+            var distribution = fullThrottleData
+                .GroupBy(p => (p.RPM / 100) * 100)
+                .ToDictionary(g => g.Key, g => g.Count());
+            analysis.RPMDistribution = distribution;
+        }
+
+        // Calculate optimal shift point
+        analysis.OptimalShiftRPM = CalculateOptimalUpshiftRPM(gear);
+
+        // Calculate confidence with reason
+        var (score, reason) = CalculateConfidenceWithReason(fullThrottleData.Count);
+        analysis.ConfidenceScore = score;
+        analysis.ConfidenceReason = reason;
+        analysis.PassedConfidenceThreshold = score >= MinConfidenceThreshold && analysis.OptimalShiftRPM.HasValue;
+
+        return analysis;
+    }
+}
+
+// Represents a single telemetry data point
+public class TelemetryDataPoint
+{
+    public int RPM { get; set; }
+    public float Throttle { get; set; }
+    public float Speed { get; set; }
+    public int Gear { get; set; }
+    public DateTime Timestamp { get; set; }
+}
+
+// Stores the optimal shift configuration generated from analysis
+public class OptimalShiftConfig
+{
+    public Dictionary<int, int> OptimalUpshiftRPM { get; set; } = new();
+    public Dictionary<int, float> DataConfidence { get; set; } = new();
+    public Dictionary<int, float> GearRatios { get; set; } = new(); // Gear N -> ratio to gear N+1
+    public Dictionary<int, Dictionary<int, float>> AccelerationCurves { get; set; } = new(); // Gear -> (RPM -> acceleration)
+    public DateTime LastUpdated { get; set; }
+    public int TotalDataPoints { get; set; }
+
+    // Converts to GearRPMConfig for use in the main application
+    public GearRPMConfig ToGearRPMConfig()
+    {
+        var config = new GearRPMConfig();
+        foreach (var kvp in OptimalUpshiftRPM)
+        {
+            config.SetRPMForGear(kvp.Key, kvp.Value);
+        }
+        return config;
+    }
+}
+
+/// <summary>
+/// INTELLIGENT SHIFT PATTERN ANALYZER WITH LAP PERFORMANCE CORRELATION
+///
+/// This analyzer detects gear shifts and correlates shift patterns with lap performance.
+/// It works in conjunction with physics-based analysis (OptimalShift) to provide
+/// performance validation of shift points.
+///
+/// Key Intelligence Features:
+/// 1. Filters shifts to prioritize straight-line acceleration (requires throttle >= 30%)
+/// 2. Ignores low-RPM shifts (< 3000 RPM) which are typically braking/coasting downshifts
+/// 3. Tracks lap validity using ACC's is_valid_lap flag + off-track metrics
+/// 4. Groups shifts into RPM buckets (200 RPM ranges) and correlates with lap times
+/// 5. Identifies optimal shift points where faster lap times were achieved
+///
+/// This provides real-world validation of physics-based shift points, allowing the system
+/// to learn from actual performance rather than just theoretical acceleration curves.
+/// </summary>
+public class PatternShift
+{
+    private readonly List<ShiftEvent> _shiftHistory = new();
+    private readonly List<LapPerformance> _lapHistory = new();
+    private readonly Dictionary<int, List<ShiftPerformanceData>> _shiftPerformanceByGear = new();
+    private int _maxGear = 6; // Default to 6 gears, can be overridden
+
+    // Current state tracking
+    private int _lastGear = 0;
+    private int _lastRPM = 0;
+    private float _lastSpeed = 0;
+    private float _lastThrottle = 0;
+    private int _currentLapNumber = 0;
+    private DateTime _lapStartTime = DateTime.Now;
+    private float _offTrackTime = 0;
+    private int _offTrackCount = 0;
+    private bool _wasOffTrack = false;
+    private DateTime _lastUpdate = DateTime.Now;
+    private bool _wasCurrentLapValid = false; // Track validity status of lap in progress
+
+    // Shift detection parameters
+    private const int MinRPMForShift = 3000; // Ignore shifts below this RPM (downshifts while braking)
+    private const float MinThrottleForUpshift = 0.3f; // Must be accelerating for upshift to count
+
+    /// <summary>
+    /// Sets the maximum gear for this vehicle.
+    /// </summary>
+    public void SetMaxGear(int maxGear)
+    {
+        _maxGear = maxGear > 0 ? maxGear : 6;
+    }
+
+    /// <summary>
+    /// Updates the analyzer with current telemetry data. Call this every frame (~20Hz).
+    /// </summary>
+    public void Update(int gear, int rpm, float throttle, float speed, float normalizedPosition,
+                       LapTimingData? lapTiming, bool isOffTrack)
+    {
+        var now = DateTime.Now;
+        float deltaTime = (float)(now - _lastUpdate).TotalSeconds;
+        _lastUpdate = now;
+
+        // Detect gear changes
+        if (_lastGear != 0 && gear != _lastGear)
+        {
+            bool isUpshift = gear > _lastGear;
+
+            // Filter out invalid shifts (neutral, reverse, engine braking)
+            if (_lastGear >= 1 && gear >= 1)
+            {
+                // For upshifts, require minimum throttle and don't record shifts from 6th+ gear (no next gear)
+                if (isUpshift && _lastGear < 6 && _lastThrottle >= MinThrottleForUpshift && _lastRPM >= MinRPMForShift)
+                {
+                    RecordShift(isUpshift, _lastGear, gear, _lastRPM, rpm, _lastSpeed, speed,
+                               normalizedPosition, _lastThrottle);
+                }
+                // For downshifts, just check we're above minimum RPM (can downshift from any gear)
+                else if (!isUpshift && rpm >= MinRPMForShift)
+                {
+                    RecordShift(isUpshift, _lastGear, gear, _lastRPM, rpm, _lastSpeed, speed,
+                               normalizedPosition, _lastThrottle);
+                }
+            }
+        }
+
+        // Track off-track events
+        if (isOffTrack && !_wasOffTrack)
+        {
+            _offTrackCount++;
+        }
+        if (isOffTrack)
+        {
+            _offTrackTime += deltaTime;
+        }
+        _wasOffTrack = isOffTrack;
+
+        // Track lap validity status (this tells us if the CURRENT lap in progress is valid)
+        if (lapTiming != null)
+        {
+            _wasCurrentLapValid = lapTiming.IsCurrentLapValid;
+        }
+
+        // Detect lap completion
+        if (lapTiming != null && lapTiming.CompletedLaps > _currentLapNumber)
+        {
+            // When lap completes, use the validity status from BEFORE completion
+            CompleteLap(lapTiming, _wasCurrentLapValid);
+            _currentLapNumber = lapTiming.CompletedLaps;
+            _lapStartTime = now;
+            _offTrackTime = 0;
+            _offTrackCount = 0;
+            // Reset validity for new lap (will be updated in next frame)
+            _wasCurrentLapValid = lapTiming.IsCurrentLapValid;
+        }
+
+        // Update state
+        _lastGear = gear;
+        _lastRPM = rpm;
+        _lastSpeed = speed;
+        _lastThrottle = throttle;
+    }
+
+    /// <summary>
+    /// Records a shift event with context about the shift quality.
+    /// </summary>
+    private void RecordShift(bool isUpshift, int fromGear, int toGear, int fromRPM, int toRPM,
+                            float fromSpeed, float toSpeed, float trackPosition, float throttle)
+    {
+        var shiftEvent = new ShiftEvent
+        {
+            Timestamp = DateTime.Now,
+            IsUpshift = isUpshift,
+            FromGear = fromGear,
+            ToGear = toGear,
+            FromRPM = fromRPM,
+            ToRPM = toRPM,
+            FromSpeed = fromSpeed,
+            ToSpeed = toSpeed,
+            TrackPosition = trackPosition,
+            Throttle = throttle,
+            LapNumber = _currentLapNumber
+        };
+
+        _shiftHistory.Add(shiftEvent);
+    }
+
+    /// <summary>
+    /// Completes the current lap and associates all shifts with lap performance.
+    /// Uses ACC's is_valid_lap field to determine lap validity.
+    /// NOTE: is_valid_lap is reliable in practice/qualifying but less reliable in races.
+    /// </summary>
+    private void CompleteLap(LapTimingData lapTiming, bool wasLapValid)
+    {
+        if (_currentLapNumber == 0)
+            return; // First lap, no data yet
+
+        // Primary validity check: Use ACC's is_valid_lap field (tracked from previous frame)
+        bool isValidByACC = wasLapValid;
+
+        // Secondary validity check: Basic sanity checks on lap time and off-track
+        // Off-track limit: 3.0 seconds cumulative (â‰¥50% off track) invalidates lap
+        bool isValidByMetrics = lapTiming.LastLapTimeMs < int.MaxValue &&
+                                lapTiming.LastLapTimeMs > 0 &&
+                                _offTrackTime < 3.0f;
+
+        var lapPerformance = new LapPerformance
+        {
+            LapNumber = _currentLapNumber,
+            LapTime = lapTiming.LastLapTimeMs,
+            OffTrackTime = _offTrackTime,
+            OffTrackCount = _offTrackCount,
+            CompletionTime = DateTime.Now,
+            IsValid = isValidByACC && isValidByMetrics, // Both checks must pass
+            IsValidByACC = isValidByACC,
+            IsValidByMetrics = isValidByMetrics
+        };
+
+        _lapHistory.Add(lapPerformance);
+
+        // Associate shifts from this lap with the lap performance
+        var lapShifts = _shiftHistory
+            .Where(s => s.LapNumber == _currentLapNumber)
+            .ToList();
+
+        foreach (var shift in lapShifts)
+        {
+            // Only analyze upshifts for now
+            if (!shift.IsUpshift)
+                continue;
+
+            int gear = shift.FromGear;
+            if (!_shiftPerformanceByGear.ContainsKey(gear))
+                _shiftPerformanceByGear[gear] = new List<ShiftPerformanceData>();
+
+            _shiftPerformanceByGear[gear].Add(new ShiftPerformanceData
+            {
+                ShiftEvent = shift,
+                LapPerformance = lapPerformance
+            });
+        }
+    }
+
+    /// <summary>
+    /// Analyzes all collected shift data to find optimal shift points based on actual lap performance.
+    /// Returns recommended shift RPMs for each gear.
+    /// </summary>
+    public Dictionary<int, int> AnalyzeOptimalShiftPoints(int minLapsRequired = 2)
+    {
+        var optimalShiftPoints = new Dictionary<int, int>();
+
+        // Need enough valid laps to make meaningful recommendations
+        var validLaps = _lapHistory.Where(l => l.IsValid).ToList();
+        if (validLaps.Count < minLapsRequired)
+            return optimalShiftPoints;
+
+        // Analyze each gear
+        for (int gear = 1; gear <= _maxGear; gear++)
+        {
+            if (!_shiftPerformanceByGear.ContainsKey(gear))
+                continue;
+
+            var gearShifts = _shiftPerformanceByGear[gear]
+                .Where(s => s.LapPerformance.IsValid)
+                .ToList();
+
+            if (gearShifts.Count < 5) // Need at least 5 shifts to analyze
+                continue;
+
+            // Group shifts by RPM buckets (200 RPM buckets)
+            var shiftsByRPM = gearShifts
+                .GroupBy(s => (s.ShiftEvent.FromRPM / 200) * 200)
+                .Where(g => g.Count() >= 2) // Need at least 2 samples per bucket
+                .ToList();
+
+            if (shiftsByRPM.Count == 0)
+                continue;
+
+            // Find the RPM bucket with the best average lap performance
+            var bestRPMBucket = shiftsByRPM
+                .Select(g => new
+                {
+                    RPM = g.Key,
+                    AvgLapTime = g.Average(s => s.LapPerformance.LapTime),
+                    AvgOffTrackTime = g.Average(s => s.LapPerformance.OffTrackTime),
+                    Count = g.Count(),
+                    // Composite score: faster lap time (lower is better) + less off-track time
+                    Score = g.Average(s => s.LapPerformance.LapTime + (s.LapPerformance.OffTrackTime * 1000))
+                })
+                .OrderBy(x => x.Score) // Lower score is better
+                .FirstOrDefault();
+
+            if (bestRPMBucket != null)
+            {
+                optimalShiftPoints[gear] = bestRPMBucket.RPM;
+            }
+        }
+
+        return optimalShiftPoints;
+    }
+
+    /// <summary>
+    /// Generates a detailed performance report showing how different shift patterns correlate with lap times.
+    /// </summary>
+    public ShiftPatternReport GeneratePerformanceReport()
+    {
+        var report = new ShiftPatternReport
+        {
+            TotalShifts = _shiftHistory.Count,
+            TotalLaps = _lapHistory.Count,
+            ValidLaps = _lapHistory.Count(l => l.IsValid),
+            GeneratedAt = DateTime.Now
+        };
+
+        if (_lapHistory.Count == 0)
+            return report;
+
+        // Calculate lap statistics
+        var validLaps = _lapHistory.Where(l => l.IsValid).ToList();
+        if (validLaps.Count > 0)
+        {
+            report.BestLapTime = validLaps.Min(l => l.LapTime);
+            report.AverageLapTime = (int)validLaps.Average(l => l.LapTime);
+            report.TotalOffTrackEvents = validLaps.Sum(l => l.OffTrackCount);
+        }
+
+        // Analyze each gear
+        foreach (var gearData in _shiftPerformanceByGear)
+        {
+            int gear = gearData.Key;
+            var shifts = gearData.Value.Where(s => s.LapPerformance.IsValid).ToList();
+
+            if (shifts.Count == 0)
+                continue;
+
+            var gearReport = new GearShiftReport
+            {
+                Gear = gear,
+                TotalShifts = shifts.Count,
+                MinShiftRPM = shifts.Min(s => s.ShiftEvent.FromRPM),
+                MaxShiftRPM = shifts.Max(s => s.ShiftEvent.FromRPM),
+                AvgShiftRPM = (int)shifts.Average(s => s.ShiftEvent.FromRPM)
+            };
+
+            // Group by RPM buckets and show performance correlation
+            var bucketAnalysis = shifts
+                .GroupBy(s => (s.ShiftEvent.FromRPM / 200) * 200)
+                .Where(g => g.Count() >= 2)
+                .Select(g => new RPMBucketAnalysis
+                {
+                    RPM = g.Key,
+                    ShiftCount = g.Count(),
+                    AvgLapTime = (int)g.Average(s => s.LapPerformance.LapTime),
+                    AvgOffTrackTime = g.Average(s => s.LapPerformance.OffTrackTime),
+                    PerformanceScore = g.Average(s => s.LapPerformance.LapTime + (s.LapPerformance.OffTrackTime * 1000))
+                })
+                .OrderBy(b => b.PerformanceScore)
+                .ToList();
+
+            gearReport.RPMBuckets = bucketAnalysis;
+
+            if (bucketAnalysis.Count > 0)
+            {
+                gearReport.OptimalRPM = bucketAnalysis.First().RPM;
+            }
+
+            report.GearReports.Add(gearReport);
+        }
+
+        return report;
+    }
+
+    /// <summary>
+    /// Clears all collected data (useful for starting a new session).
+    /// </summary>
+    public void Clear()
+    {
+        _shiftHistory.Clear();
+        _lapHistory.Clear();
+        _shiftPerformanceByGear.Clear();
+        _currentLapNumber = 0;
+        _offTrackTime = 0;
+        _offTrackCount = 0;
+    }
+
+    public int GetTotalShifts() => _shiftHistory.Count;
+    public int GetTotalLaps() => _lapHistory.Count;
+    public int GetValidLaps() => _lapHistory.Count(l => l.IsValid);
+}
+
+// Data models for shift pattern analysis
+
+public class ShiftEvent
+{
+    public DateTime Timestamp { get; set; }
+    public bool IsUpshift { get; set; }
+    public int FromGear { get; set; }
+    public int ToGear { get; set; }
+    public int FromRPM { get; set; }
+    public int ToRPM { get; set; }
+    public float FromSpeed { get; set; }
+    public float ToSpeed { get; set; }
+    public float TrackPosition { get; set; } // 0.0 to 1.0 along track
+    public float Throttle { get; set; }
+    public int LapNumber { get; set; }
+}
+
+public class LapPerformance
+{
+    public int LapNumber { get; set; }
+    public int LapTime { get; set; } // in milliseconds
+    public float OffTrackTime { get; set; } // seconds off track
+    public int OffTrackCount { get; set; } // number of times went off track
+    public DateTime CompletionTime { get; set; }
+    public bool IsValid { get; set; } // Valid if both ACC and metrics checks pass
+    public bool IsValidByACC { get; set; } // Validity from ACC's validated_laps field
+    public bool IsValidByMetrics { get; set; } // Validity from our sanity checks
+}
+
+public class ShiftPerformanceData
+{
+    public ShiftEvent ShiftEvent { get; set; } = null!;
+    public LapPerformance LapPerformance { get; set; } = null!;
+}
+
+public class ShiftPatternReport
+{
+    public int TotalShifts { get; set; }
+    public int TotalLaps { get; set; }
+    public int ValidLaps { get; set; }
+    public int BestLapTime { get; set; }
+    public int AverageLapTime { get; set; }
+    public int TotalOffTrackEvents { get; set; }
+    public DateTime GeneratedAt { get; set; }
+    public List<GearShiftReport> GearReports { get; set; } = new();
+
+    public string FormatLapTime(int milliseconds)
+    {
+        if (milliseconds == int.MaxValue)
+            return "N/A";
+
+        int totalSeconds = milliseconds / 1000;
+        int minutes = totalSeconds / 60;
+        int seconds = totalSeconds % 60;
+        int ms = milliseconds % 1000;
+
+        return $"{minutes}:{seconds:D2}.{ms:D3}";
+    }
+}
+
+public class GearShiftReport
+{
+    public int Gear { get; set; }
+    public int TotalShifts { get; set; }
+    public int MinShiftRPM { get; set; }
+    public int MaxShiftRPM { get; set; }
+    public int AvgShiftRPM { get; set; }
+    public int OptimalRPM { get; set; }
+    public List<RPMBucketAnalysis> RPMBuckets { get; set; } = new();
+}
+
+public class RPMBucketAnalysis
+{
+    public int RPM { get; set; }
+    public int ShiftCount { get; set; }
+    public int AvgLapTime { get; set; }
+    public double AvgOffTrackTime { get; set; }
+    public double PerformanceScore { get; set; } // Lower is better
+}
+
+/// <summary>
+/// INTELLIGENT PERFORMANCE LEARNING ENGINE
+///
+/// This engine combines physics-based shift point analysis with real-world lap performance
+/// to provide the most intelligent shift recommendations possible.
+///
+/// Philosophy:
+/// - Physics (OptimalShift) provides the "correct" shift point based on acceleration curves
+/// - Performance (PatternShift) validates and fine-tunes based on actual lap times
+/// - Confidence scoring increases as more data is collected
+///
+/// Weighting Strategy:
+/// - Initial: 40% Physics / 60% Performance (trust real-world results more)
+/// - As confidence grows: Physics weight decreases, Performance weight increases
+/// - At maximum confidence (20+ laps): ~25% Physics / ~75% Performance
+///
+/// This approach ensures:
+/// 1. You start with good physics-based shift points immediately
+/// 2. System learns from your actual performance to fine-tune
+/// 3. Shift points converge to what actually produces fastest lap times
+/// 4. Physics prevents the system from learning bad habits (if you shift poorly)
+///
+/// Requires minimum 2 valid laps to start providing performance-based adjustments.
+/// </summary>
+public class PerformanceEng
+{
+    private readonly PatternShift _shiftAnalyzer;
+    private readonly OptimalShift _accelerationAnalyzer;
+    private int _maxGear = 6; // Default to 6 gears (GT3), can be set via property
+
+    // Learning parameters
+    private const float AccelerationWeight = 0.4f; // Weight for physics-based acceleration analysis
+    private const float PerformanceWeight = 0.6f; // Weight for actual lap performance
+    private const int MinLapsForLearning = 2; // Minimum laps before adjusting from performance
+    private const int MinShiftsPerGear = 5; // Minimum shifts per gear to learn from
+
+    // Adaptive learning rate (starts conservative, increases with data confidence)
+    private float _learningRate = 0.2f;
+
+    public PerformanceEng(PatternShift shiftAnalyzer, OptimalShift accelerationAnalyzer, int maxGear = 6)
+    {
+        _shiftAnalyzer = shiftAnalyzer;
+        _accelerationAnalyzer = accelerationAnalyzer;
+        _maxGear = maxGear > 0 ? maxGear : 6;
+    }
+
+    /// <summary>
+    /// Sets the maximum gear for this vehicle.
+    /// </summary>
+    public void SetMaxGear(int maxGear)
+    {
+        _maxGear = maxGear > 0 ? maxGear : 6;
+    }
+
+    /// <summary>
+    /// Generates optimal shift points by combining acceleration-based analysis with performance-based learning.
+    /// </summary>
+    public Dictionary<int, int> GenerateOptimalShiftPoints()
+    {
+        var optimalPoints = new Dictionary<int, int>();
+
+        // Get physics-based optimal points (from acceleration analysis)
+        var physicsBasedPoints = GetPhysicsBasedShiftPoints();
+
+        // Get performance-based optimal points (from lap time correlation)
+        var performanceBasedPoints = _shiftAnalyzer.AnalyzeOptimalShiftPoints(MinLapsForLearning);
+
+        // Calculate learning rate based on data confidence
+        UpdateLearningRate();
+
+        // Combine both sources using weighted average
+        for (int gear = 1; gear <= _maxGear; gear++)
+        {
+            bool hasPhysicsData = physicsBasedPoints.ContainsKey(gear);
+            bool hasPerformanceData = performanceBasedPoints.ContainsKey(gear);
+
+            if (hasPhysicsData && hasPerformanceData)
+            {
+                // Both sources available - blend them
+                int physicsRPM = physicsBasedPoints[gear];
+                int performanceRPM = performanceBasedPoints[gear];
+
+                // Use weighted average with adaptive learning
+                // At maximum confidence (learningRate = 0.8): physics = 0.25, performance = 0.75
+                // At minimum confidence (learningRate = 0.2): physics = 0.4, performance = 0.6
+                float adjustedPerfWeight = PerformanceWeight + (_learningRate * 0.1875f);
+                float adjustedPhysWeight = AccelerationWeight - (_learningRate * 0.1875f);
+                float totalWeight = adjustedPerfWeight + adjustedPhysWeight;
+
+                int blendedRPM = (int)((physicsRPM * adjustedPhysWeight + performanceRPM * adjustedPerfWeight) / totalWeight);
+
+                optimalPoints[gear] = blendedRPM;
+            }
+            else if (hasPhysicsData)
+            {
+                // Only physics data available
+                optimalPoints[gear] = physicsBasedPoints[gear];
+            }
+            else if (hasPerformanceData)
+            {
+                // Only performance data available
+                optimalPoints[gear] = performanceBasedPoints[gear];
+            }
+            // If neither available, no recommendation for this gear
+        }
+
+        return optimalPoints;
+    }
+
+    /// <summary>
+    /// Gets shift points from the acceleration-based analyzer.
+    /// </summary>
+    private Dictionary<int, int> GetPhysicsBasedShiftPoints()
+    {
+        var points = new Dictionary<int, int>();
+
+        for (int gear = 1; gear <= _maxGear; gear++)
+        {
+            var optimalRPM = _accelerationAnalyzer.CalculateOptimalUpshiftRPM(gear);
+            if (optimalRPM.HasValue)
+            {
+                points[gear] = optimalRPM.Value;
+            }
+        }
+
+        return points;
+    }
+
+    /// <summary>
+    /// Updates the learning rate based on data confidence (more data = trust performance more).
+    /// </summary>
+    private void UpdateLearningRate()
+    {
+        int validLaps = _shiftAnalyzer.GetValidLaps();
+
+        // Learning rate increases with more laps (caps at 0.8)
+        // 3 laps = 0.2, 5 laps = 0.35, 10 laps = 0.6, 20+ laps = 0.8
+        _learningRate = Math.Min(0.8f, 0.2f + (validLaps / 25f));
+    }
+
+    /// <summary>
+    /// Generates a comprehensive report comparing physics-based vs performance-based shift points.
+    /// </summary>
+    public LearningReport GenerateLearningReport()
+    {
+        var report = new LearningReport
+        {
+            GeneratedAt = DateTime.Now,
+            LearningRate = _learningRate,
+            TotalLaps = _shiftAnalyzer.GetTotalLaps(),
+            ValidLaps = _shiftAnalyzer.GetValidLaps(),
+            TotalShifts = _shiftAnalyzer.GetTotalShifts()
+        };
+
+        var physicsPoints = GetPhysicsBasedShiftPoints();
+        var performancePoints = _shiftAnalyzer.AnalyzeOptimalShiftPoints(MinLapsForLearning);
+        var blendedPoints = GenerateOptimalShiftPoints();
+
+        for (int gear = 1; gear <= _maxGear; gear++)
+        {
+            var gearReport = new GearLearningReport
+            {
+                Gear = gear,
+                PhysicsBasedRPM = physicsPoints.ContainsKey(gear) ? physicsPoints[gear] : (int?)null,
+                PerformanceBasedRPM = performancePoints.ContainsKey(gear) ? performancePoints[gear] : (int?)null,
+                BlendedRPM = blendedPoints.ContainsKey(gear) ? blendedPoints[gear] : (int?)null
+            };
+
+            // Calculate difference between physics and performance
+            if (gearReport.PhysicsBasedRPM.HasValue && gearReport.PerformanceBasedRPM.HasValue)
+            {
+                gearReport.Difference = gearReport.PerformanceBasedRPM.Value - gearReport.PhysicsBasedRPM.Value;
+
+                // Determine recommendation
+                if (Math.Abs(gearReport.Difference) < 100)
+                {
+                    gearReport.Interpretation = "Physics and performance agree - high confidence";
+                }
+                else if (gearReport.Difference > 0)
+                {
+                    gearReport.Interpretation = $"Performance suggests shifting {gearReport.Difference} RPM later";
+                }
+                else
+                {
+                    gearReport.Interpretation = $"Performance suggests shifting {-gearReport.Difference} RPM earlier";
+                }
+            }
+            else if (gearReport.PhysicsBasedRPM.HasValue)
+            {
+                gearReport.Interpretation = "Using physics-based calculation (need more lap data)";
+            }
+            else if (gearReport.PerformanceBasedRPM.HasValue)
+            {
+                gearReport.Interpretation = "Using performance-based calculation (need more telemetry data)";
+            }
+            else
+            {
+                gearReport.Interpretation = "Insufficient data";
+            }
+
+            report.GearReports.Add(gearReport);
+        }
+
+        return report;
+    }
+
+    /// <summary>
+    /// Gets a real-time recommendation for whether the current shift point is optimal.
+    /// </summary>
+    public ShiftPointRecommendation GetRecommendationForGear(int gear, int currentThreshold)
+    {
+        var optimalPoints = GenerateOptimalShiftPoints();
+
+        if (!optimalPoints.ContainsKey(gear))
+        {
+            return new ShiftPointRecommendation
+            {
+                Gear = gear,
+                CurrentRPM = currentThreshold,
+                HasRecommendation = false,
+                Message = "Insufficient data for recommendation"
+            };
+        }
+
+        int recommendedRPM = optimalPoints[gear];
+        int difference = currentThreshold - recommendedRPM;
+
+        var recommendation = new ShiftPointRecommendation
+        {
+            Gear = gear,
+            CurrentRPM = currentThreshold,
+            RecommendedRPM = recommendedRPM,
+            Difference = difference,
+            HasRecommendation = true,
+            Confidence = _learningRate
+        };
+
+        if (Math.Abs(difference) < 100)
+        {
+            recommendation.Message = "âœ“ Current shift point is optimal";
+        }
+        else if (difference > 0)
+        {
+            recommendation.Message = $"â†“ Try shifting {difference} RPM earlier for better performance";
+        }
+        else
+        {
+            recommendation.Message = $"â†‘ Try shifting {-difference} RPM later for better performance";
+        }
+
+        return recommendation;
+    }
+
+    public float GetLearningRate() => _learningRate;
+    public int GetDataQuality() => _shiftAnalyzer.GetValidLaps();
+}
+
+// Data models for learning engine
+
+public class LearningReport
+{
+    public DateTime GeneratedAt { get; set; }
+    public float LearningRate { get; set; }
+    public int TotalLaps { get; set; }
+    public int ValidLaps { get; set; }
+    public int TotalShifts { get; set; }
+    public List<GearLearningReport> GearReports { get; set; } = new();
+}
+
+public class GearLearningReport
+{
+    public int Gear { get; set; }
+    public int? PhysicsBasedRPM { get; set; }
+    public int? PerformanceBasedRPM { get; set; }
+    public int? BlendedRPM { get; set; }
+    public int Difference { get; set; } // Performance - Physics
+    public string Interpretation { get; set; } = string.Empty;
+}
+
+public class ShiftPointRecommendation
+{
+    public int Gear { get; set; }
+    public int CurrentRPM { get; set; }
+    public int RecommendedRPM { get; set; }
+    public int Difference { get; set; }
+    public bool HasRecommendation { get; set; }
+    public float Confidence { get; set; } // 0.0 to 1.0
+    public string Message { get; set; } = string.Empty;
+}
+
+// Recommends optimal gear for sustained power delivery (corners, uphills)
+// Different from shift point optimization which focuses on short-term acceleration
+public class GearRecommendationEngine
+{
+    private readonly Dictionary<int, Dictionary<int, float>> _accelerationCurves;
+    private readonly Dictionary<int, float> _gearRatios;
+    private const float SustainedSpeedRange = 15f; // km/h - range to average acceleration over
+
+    public GearRecommendationEngine(Dictionary<int, Dictionary<int, float>> accelerationCurves, Dictionary<int, float> gearRatios)
+    {
+        _accelerationCurves = accelerationCurves;
+        _gearRatios = gearRatios;
+    }
+
+    // Returns the optimal gear for sustained power at the given speed
+    // Returns null if insufficient data or manual config (no acceleration curves)
+    public int? GetOptimalGearForSpeed(float currentSpeed, float currentThrottle)
+    {
+        // Need speed > 30 km/h to have meaningful data
+        if (currentSpeed < 30f)
+            return null;
+
+        // No curves available (manual config)
+        if (_accelerationCurves == null || _accelerationCurves.Count == 0)
+            return null;
+
+        int? bestGear = null;
+        float bestSustainedScore = float.MinValue;
+
+        // Check all available gears (1-6)
+        for (int gear = 1; gear <= 6; gear++)
+        {
+            if (!_accelerationCurves.ContainsKey(gear))
+                continue;
+
+            // Calculate sustained acceleration score for this gear
+            float? sustainedScore = CalculateSustainedAccelerationScore(gear, currentSpeed, currentThrottle);
+
+            if (sustainedScore.HasValue && sustainedScore.Value > bestSustainedScore)
+            {
+                bestSustainedScore = sustainedScore.Value;
+                bestGear = gear;
+            }
+        }
+
+        return bestGear;
+    }
+
+    // Calculates average acceleration over a speed range for sustained power evaluation
+    private float? CalculateSustainedAccelerationScore(int gear, float currentSpeed, float throttle)
+    {
+        if (!_accelerationCurves.ContainsKey(gear))
+            return null;
+
+        var gearCurve = _accelerationCurves[gear];
+
+        // Weight sustained power more heavily at partial throttle (< 85%)
+        // This is typical for corners/uphills where consistent power matters more
+        float sustainedWeight = throttle < 0.85f ? 0.8f : 0.6f;
+        float peakWeight = 1.0f - sustainedWeight;
+
+        // Calculate acceleration at current speed
+        float? currentAccel = GetAccelerationAtSpeed(gear, currentSpeed);
+        if (!currentAccel.HasValue)
+            return null;
+
+        // Calculate average acceleration over the next 15 km/h (sustained range)
+        float endSpeed = currentSpeed + SustainedSpeedRange;
+        float sumAccel = 0f;
+        int samples = 0;
+
+        // Sample every 2 km/h over the range
+        for (float speed = currentSpeed; speed <= endSpeed; speed += 2f)
+        {
+            float? accel = GetAccelerationAtSpeed(gear, speed);
+            if (accel.HasValue)
+            {
+                sumAccel += accel.Value;
+                samples++;
+            }
+        }
+
+        if (samples == 0)
+            return null;
+
+        float averageSustainedAccel = sumAccel / samples;
+
+        // Calculate score: weighted combination of peak (current) and sustained (average) acceleration
+        float score = (currentAccel.Value * peakWeight) + (averageSustainedAccel * sustainedWeight);
+
+        return score;
+    }
+
+    // Gets acceleration at a specific speed for a gear (with interpolation)
+    private float? GetAccelerationAtSpeed(int gear, float targetSpeed)
+    {
+        if (!_accelerationCurves.ContainsKey(gear))
+            return null;
+
+        var gearCurve = _accelerationCurves[gear];
+
+        // Convert speed to approximate RPM using gear ratio if available
+        // For now, use speed directly as we don't have RPM->Speed mapping
+        // The acceleration curves are indexed by RPM, but we need speed-based lookup
+
+        // Find closest available data points in the curve
+        // Acceleration curves are stored as Dictionary<RPM, accel>
+        // We need to estimate which RPM corresponds to our target speed
+
+        // Simplified approach: use the curve data directly
+        // In practice, the curves should be dense enough that we can find nearby points
+
+        if (gearCurve.Count == 0)
+            return null;
+
+        // For now, return a weighted average of all accelerations in the gear
+        // This is a simplified approach - ideally we'd have RPM->Speed mapping
+        // But it still gives us useful information about which gear has better sustained power
+
+        // Get all acceleration values
+        var accels = gearCurve.Values.ToList();
+        if (accels.Count == 0)
+            return null;
+
+        // Return average acceleration for this gear as a proxy for sustained performance
+        return accels.Average();
+    }
+
+    // Helper to check if gear recommendation is available
+    public bool IsAvailable()
+    {
+        return _accelerationCurves != null && _accelerationCurves.Count > 0;
+    }
+}

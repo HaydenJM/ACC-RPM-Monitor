@@ -3,10 +3,13 @@ using System.Text.Json;
 namespace ACCRPMMonitor;
 
 // Handles loading and saving of per-vehicle RPM configs (both manual and auto)
+// Directory structure: data/{car}/{track}/{car}_config.json or {car}_auto.json
+// Reports and graphs also saved under: data/{car}/{track}/
 public class ConfigMan
 {
     private readonly string _configsDirectory;
     private string _currentVehicleName;
+    private string _currentTrackName;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -14,7 +17,7 @@ public class ConfigMan
 
     public ConfigMode CurrentMode { get; private set; } = ConfigMode.Manual;
 
-    public ConfigMan(string vehicleName = "default")
+    public ConfigMan(string vehicleName = "default", string trackName = "default")
     {
         // Store configs in ./data directory next to the application
         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
@@ -22,15 +25,37 @@ public class ConfigMan
 
         Directory.CreateDirectory(_configsDirectory);
 
-        _currentVehicleName = vehicleName;
+        _currentVehicleName = SanitizeFileName(vehicleName);
+        _currentTrackName = SanitizeFileName(trackName);
     }
 
-    // Gets the vehicle-specific directory for generated files (reports, graphs, etc.)
+    // Gets the vehicle+track-specific directory for generated files (reports, graphs, etc.)
+    // Structure: data/{car}/{track}/
     public string GetVehicleDataDirectory()
     {
         string vehicleDir = Path.Combine(_configsDirectory, _currentVehicleName);
-        Directory.CreateDirectory(vehicleDir);
-        return vehicleDir;
+        string trackDir = Path.Combine(vehicleDir, _currentTrackName);
+        Directory.CreateDirectory(trackDir);
+        return trackDir;
+    }
+
+    // Sanitizes filenames to be filesystem-safe
+    private static string SanitizeFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "default";
+
+        // Remove invalid path characters
+        foreach (char c in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(c, '_');
+        }
+
+        // Replace spaces and common special characters
+        name = name.Replace(' ', '_').Replace('/', '_').Replace('\\', '_');
+
+        // Convert to lowercase for consistency
+        return name.ToLowerInvariant();
     }
 
     // Loads config from file based on current mode
@@ -120,30 +145,75 @@ public class ConfigMan
 
     private string GetConfigPath(string vehicleName, ConfigMode mode)
     {
-        string suffix = mode == ConfigMode.Auto ? "_auto" : "";
-        return Path.Combine(_configsDirectory, $"{vehicleName}{suffix}.json");
+        // Structure: data/{car}/{track}/{car}_config.json or {car}_auto.json
+        string vehicleDir = Path.Combine(_configsDirectory, vehicleName);
+        string trackDir = Path.Combine(vehicleDir, _currentTrackName);
+        Directory.CreateDirectory(trackDir);
+
+        string suffix = mode == ConfigMode.Auto ? "_auto" : "_config";
+        return Path.Combine(trackDir, $"{vehicleName}{suffix}.json");
     }
 
     public string CurrentVehicleName => _currentVehicleName;
+    public string CurrentTrackName => _currentTrackName;
 
     public void SetVehicle(string vehicleName)
     {
-        _currentVehicleName = vehicleName;
+        _currentVehicleName = SanitizeFileName(vehicleName);
     }
 
-    // Lists all available vehicle configs in the directory
+    public void SetTrack(string trackName)
+    {
+        _currentTrackName = SanitizeFileName(trackName);
+    }
+
+    public void SetVehicleAndTrack(string vehicleName, string trackName)
+    {
+        _currentVehicleName = SanitizeFileName(vehicleName);
+        _currentTrackName = SanitizeFileName(trackName);
+    }
+
+    // Lists all available vehicle configs (scans data/{car}/ directories)
     public List<string> GetAvailableVehicles()
     {
-        var files = Directory.GetFiles(_configsDirectory, "*.json");
-        var vehicles = files
-            .Select(f => Path.GetFileNameWithoutExtension(f))
-            .Where(name => !name.EndsWith("_auto")) // Exclude auto configs from list
-            .Select(name => name.Replace("_auto", ""))
-            .Distinct()
+        if (!Directory.Exists(_configsDirectory))
+            return new List<string>();
+
+        // Get all subdirectories under data/ (these are car names)
+        var vehicleDirs = Directory.GetDirectories(_configsDirectory);
+        var vehicles = new List<string>();
+
+        foreach (var vehicleDir in vehicleDirs)
+        {
+            string vehicleName = Path.GetFileName(vehicleDir);
+            if (!string.IsNullOrEmpty(vehicleName))
+            {
+                // Check if this vehicle has any track subdirectories with configs
+                var trackDirs = Directory.GetDirectories(vehicleDir);
+                if (trackDirs.Length > 0)
+                {
+                    vehicles.Add(vehicleName);
+                }
+            }
+        }
+
+        return vehicles.Distinct().OrderBy(n => n).ToList();
+    }
+
+    // Lists all available tracks for current vehicle
+    public List<string> GetAvailableTracks()
+    {
+        string vehicleDir = Path.Combine(_configsDirectory, _currentVehicleName);
+        if (!Directory.Exists(vehicleDir))
+            return new List<string>();
+
+        var tracks = Directory.GetDirectories(vehicleDir)
+            .Select(d => Path.GetFileName(d))
+            .Where(name => !string.IsNullOrEmpty(name))
             .OrderBy(n => n)
             .ToList();
 
-        return vehicles;
+        return tracks;
     }
 
     public bool DeleteVehicle(string vehicleName)

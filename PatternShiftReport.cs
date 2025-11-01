@@ -9,9 +9,11 @@ namespace ACCRPMMonitor;
 public class PatternShiftReport
 {
     private readonly string _baseDataPath;
+    private readonly ConfigMan _configManager;
 
-    public PatternShiftReport()
+    public PatternShiftReport(ConfigMan configManager)
     {
+        _configManager = configManager;
         // Use ./data directory next to application
         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
         _baseDataPath = Path.Combine(appDirectory, "data");
@@ -20,22 +22,23 @@ public class PatternShiftReport
 
     /// <summary>
     /// Saves a comprehensive shift pattern analysis report.
+    /// Structure: data/{car}/{track}/shift_analysis_{timestamp}.{txt|json}
     /// </summary>
     public string SaveShiftPatternReport(ShiftPatternReport report, LearningReport learningReport, string vehicleName)
     {
-        // Create vehicle-specific directory
-        string vehicleReportsPath = Path.Combine(_baseDataPath, vehicleName);
-        Directory.CreateDirectory(vehicleReportsPath);
+        // Use ConfigMan to get correct vehicle+track directory
+        string vehicleTrackDir = _configManager.GetVehicleDataDirectory();
+        Directory.CreateDirectory(vehicleTrackDir);
 
         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         string baseFileName = $"shift_analysis_{timestamp}";
 
         // Save JSON version
-        string jsonPath = Path.Combine(vehicleReportsPath, $"{baseFileName}.json");
+        string jsonPath = Path.Combine(vehicleTrackDir, $"{baseFileName}.json");
         SaveJsonReport(report, learningReport, jsonPath);
 
         // Save human-readable text version
-        string textPath = Path.Combine(vehicleReportsPath, $"{baseFileName}.txt");
+        string textPath = Path.Combine(vehicleTrackDir, $"{baseFileName}.txt");
         SaveTextReport(report, learningReport, textPath);
 
         return textPath;

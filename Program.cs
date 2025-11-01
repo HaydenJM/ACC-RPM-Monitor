@@ -3,6 +3,15 @@ using System.Runtime.InteropServices;
 
 try
 {
+// Parse command-line arguments
+var cmdArgs = CommandLineArgs.Parse(args);
+
+// Show help and exit if requested
+if (cmdArgs.ShowHelp)
+{
+    CommandLineArgs.ShowHelpText();
+    return;
+}
 
 // Set console window size to fixed dimensions (82x60)
 // Buffer size matches window size to prevent scrolling and resizing
@@ -19,21 +28,48 @@ catch (Exception)
     // Ignore errors if console size cannot be set (e.g., when running in some terminals)
 }
 
-// Initialize config manager and vehicle detector
-var configManager = new ConfigMan();
+// Initialize vehicle detector to read car and track info from ACC
 var vehicleDetector = new VehicleDetector();
 
-// Try to detect current vehicle from ACC
-Console.WriteLine("Detecting vehicle from ACC...");
+// Try to detect current vehicle and track from ACC
+string? detectedVehicle = null;
+string? detectedTrack = null;
+
+Console.WriteLine("Detecting vehicle and track from ACC...");
 if (vehicleDetector.Connect())
 {
-    var detectedVehicle = vehicleDetector.GetCarModel();
+    detectedVehicle = vehicleDetector.GetCarModel();
+    detectedTrack = vehicleDetector.GetTrackName();
+
+    if (!string.IsNullOrEmpty(detectedVehicle))
+        Console.WriteLine($"Detected vehicle: {detectedVehicle}");
+    if (!string.IsNullOrEmpty(detectedTrack))
+        Console.WriteLine($"Detected track: {detectedTrack}");
+
+    vehicleDetector.Dispose();
+}
+
+// Initialize config manager with detected vehicle and track
+var configManager = new ConfigMan(
+    vehicleName: detectedVehicle ?? "default",
+    trackName: detectedTrack ?? "default"
+);
+
+// Initialize telemetry server if requested via command-line
+TelemetryServer? telemetryServer = null;
+if (cmdArgs.EnableTelemetry)
+{
+    telemetryServer = new TelemetryServer();
+    Console.WriteLine("Telemetry window will be displayed");
+}
+
+// Check if detected vehicle/track combo has a config
+if (!string.IsNullOrEmpty(detectedVehicle))
+{
     if (!string.IsNullOrEmpty(detectedVehicle))
     {
-        Console.WriteLine($"Detected vehicle: {detectedVehicle}");
-        configManager.SetVehicle(detectedVehicle);
+        configManager.SetVehicleAndTrack(detectedVehicle, detectedTrack ?? "default");
     }
-    vehicleDetector.Dispose();
 
     // Check if detected vehicle exists in available vehicles list
     if (!string.IsNullOrEmpty(detectedVehicle))
@@ -45,10 +81,9 @@ if (vehicleDetector.Connect())
             Console.WriteLine();
             Console.Write("Would you like to create a configuration for this vehicle? (Y/N): ");
 
-            var response = Console.ReadKey();
-            Console.WriteLine();
+            var response = Console.ReadLine()?.Trim().ToUpper();
 
-            if (response.KeyChar == 'Y' || response.KeyChar == 'y')
+            if (response == "Y" || response == "YES")
             {
                 Console.WriteLine($"\nCreating configuration for '{detectedVehicle}'...");
 
@@ -80,11 +115,12 @@ if (configManager.GetAvailableVehicles().Count == 0)
     configManager.SaveConfig(defaultConfig);
 }
 
+// Check if direct launch mode was specified via command-line
 // Main application loop
 bool exitApp = false;
 while (!exitApp)
 {
-    var menuChoice = ConfigUI.ShowMainMenu(configManager);
+    var menuChoice = ConfigUI.ShowMainMenu(configManager, telemetryServer != null && telemetryServer.IsRunning);
 
     switch (menuChoice)
     {
@@ -107,7 +143,11 @@ while (!exitApp)
                 ConfigUI.ShowConfigMenu(config, configManager);
                 config = configManager.LoadConfig(); // Reload in case changes were made
             }
-            RunMonitor(configManager, config);
+            RunMonitor(configManager, config, telemetryServer);
+            break;
+
+        case MainMenuChoice.ToggleTelemetry:
+            telemetryServer = ToggleTelemetryServer(telemetryServer);
             break;
 
         case MainMenuChoice.ChangeVehicle:
@@ -186,11 +226,15 @@ static void OpenConfigFolder()
 }
 
 // Monitor mode - the actual RPM monitoring
-static void RunMonitor(ConfigMan configManager, GearRPMConfig config)
+static void RunMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer)
 {
     // Check if user wants adaptive mode
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor ===");
+    if (telemetryServer != null && telemetryServer.IsRunning)
+    {
+        Console.WriteLine("Telemetry: ✓ RUNNING (http://localhost:8501)");
+    }
     Console.WriteLine();
     Console.WriteLine("Select monitoring mode:");
     Console.WriteLine("  1. Standard Mode - Use fixed shift points");
@@ -199,30 +243,47 @@ static void RunMonitor(ConfigMan configManager, GearRPMConfig config)
     Console.WriteLine();
     Console.Write("Choice (1-3): ");
 
-    var choice = Console.ReadKey();
+    var choice = Console.ReadLine()?.Trim();
 
-    if (choice.KeyChar == '3')
+    if (choice == "3")
     {
-        RunPerformanceLearningMonitor(configManager, config);
+        RunPerformanceLearningMonitor(configManager, config, telemetryServer, null);
     }
-    else if (choice.KeyChar == '2')
+    else if (choice == "2")
     {
-        RunAdaptiveMonitor(configManager, config);
+        RunAdaptiveMonitor(configManager, config, telemetryServer, null);
     }
     else
     {
-        RunStandardMonitor(configManager, config);
+        RunStandardMonitor(configManager, config, telemetryServer, null);
     }
 }
 
 // Standard monitor mode with fixed shift points
-static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
+static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
 {
     // Initialize dynamic audio engine
     using var audioEngine = new DynAudioEng();
 
+    // Apply audio profile from command-line args if specified
+    if (cmdArgs != null)
+    {
+        var audioProfile = cmdArgs.EnduranceSound ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioEngine.SetAudioProfile(audioProfile);
+    }
+
     // Initialize ACC shared memory
     using var accMemory = new ACCSharedMemorySimple();
+
+    // Start telemetry server if provided
+    if (telemetryServer != null && !telemetryServer.IsRunning)
+    {
+        if (telemetryServer.Start(accMemory))
+        {
+            Console.WriteLine("✓ Telemetry window opened");
+            Thread.Sleep(1000);
+        }
+    }
 
     // Initialize vehicle detector for real-time vehicle changes
     using var vehicleDetector = new VehicleDetector();
@@ -240,11 +301,21 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
     Console.WriteLine("=== ACC RPM Monitor - Standard Mode ===");
     Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
     Console.WriteLine($"Mode: {configManager.CurrentMode}");
+    if (telemetryServer != null && telemetryServer.IsRunning)
+    {
+        Console.WriteLine($"Telemetry: Streaming to http://localhost:{telemetryServer.Port}/telemetry");
+    }
     Console.WriteLine("Press ESC to exit\n");
 
     // Main loop state
     bool wasConnected = false;
     int readFailCount = 0;
+
+    // Tire pressure tracking for lap-before/lap-after display
+    WheelAndTireData? lapStartTirePressure = null;
+    WheelAndTireData? lapEndTirePressure = null;
+    int lastCompletedLaps = 0;
+    bool hasDisplayedLapPressures = false;
 
     Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
@@ -277,6 +348,10 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
                 Console.WriteLine("=== ACC RPM Monitor - Running ===");
                 Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
                 Console.WriteLine($"Mode: {configManager.CurrentMode}");
+                if (telemetryServer != null && telemetryServer.IsRunning)
+                {
+                    Console.WriteLine($"Telemetry: Streaming to Streamlit (http://localhost:{telemetryServer.Port})");
+                }
                 Console.WriteLine("Press ESC to exit\n");
                 Console.WriteLine("Connected to ACC!");
                 Console.WriteLine("Reading telemetry data...\n");
@@ -304,6 +379,8 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
         // Read telemetry
         var telemetryData = accMemory.ReadFullTelemetry();
         var status = accMemory.ReadStatus();
+        var tireData = accMemory.ReadWheelAndTireData(); // Read tire pressures
+        var lapTiming = accMemory.ReadLapTiming(); // Read lap timing for lap completion detection
 
         // Handle read failures
         if (telemetryData == null || status == null)
@@ -330,6 +407,42 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
         readFailCount = 0;
 
         var (currentGear, currentRPM, throttle, speed) = telemetryData.Value;
+
+        // Update telemetry server if enabled
+        if (telemetryServer != null && tireData != null)
+        {
+            // Read fuel from physics struct
+            var physics = accMemory.ReadPhysicsStruct();
+            float fuel = physics?.Fuel ?? 0f;
+            telemetryServer.UpdateTelemetry(tireData, currentRPM, currentGear - 1, speed, fuel);
+        }
+
+        // Detect lap completion and capture tire pressures
+        if (lapTiming != null && lapTiming.CompletedLaps > lastCompletedLaps)
+        {
+            // Lap was completed - save the end tire pressure from previous frame
+            if (tireData != null && lapEndTirePressure == null)
+            {
+                lapEndTirePressure = tireData;
+            }
+
+            // Prepare for next lap - current tire data becomes start of next lap
+            if (tireData != null)
+            {
+                lapStartTirePressure = tireData;
+            }
+            hasDisplayedLapPressures = false;
+            lastCompletedLaps = lapTiming.CompletedLaps;
+        }
+        else if (lastCompletedLaps == 0 && lapTiming != null && lapTiming.CompletedLaps >= 0)
+        {
+            // Initialize at start of session
+            if (tireData != null)
+            {
+                lapStartTirePressure = tireData;
+            }
+            lastCompletedLaps = lapTiming.CompletedLaps;
+        }
 
         // Only provide audio feedback when actually driving (not in menus/replay)
         bool isDriving = status == 2; // AC_LIVE
@@ -410,6 +523,38 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
             Console.WriteLine($"Status:       Normal ({Math.Abs(rpmFromThreshold)} RPM from threshold)              ");
         }
 
+        // Show tire pressures before and after lap
+        if ((lapStartTirePressure != null || lapEndTirePressure != null) && !hasDisplayedLapPressures && lapTiming != null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("─── TIRE PRESSURES (PSI) ──────────────────────────────────────");
+            if (lapStartTirePressure != null)
+            {
+                Console.WriteLine($"Start of Lap {lapTiming.CompletedLaps}:");
+                Console.WriteLine($"  FL: {lapStartTirePressure.WheelPressureFL:F2}  FR: {lapStartTirePressure.WheelPressureFR:F2}  RL: {lapStartTirePressure.WheelPressureRL:F2}  RR: {lapStartTirePressure.WheelPressureRR:F2}");
+                Console.WriteLine($"  Avg: {lapStartTirePressure.AverageWheelPressure:F2} PSI");
+            }
+            if (lapEndTirePressure != null)
+            {
+                Console.WriteLine($"End of Lap {lapTiming.CompletedLaps - 1}:");
+                Console.WriteLine($"  FL: {lapEndTirePressure.WheelPressureFL:F2}  FR: {lapEndTirePressure.WheelPressureFR:F2}  RL: {lapEndTirePressure.WheelPressureRL:F2}  RR: {lapEndTirePressure.WheelPressureRR:F2}");
+                Console.WriteLine($"  Avg: {lapEndTirePressure.AverageWheelPressure:F2} PSI");
+                if (lapStartTirePressure != null)
+                {
+                    float pressureDelta = lapStartTirePressure.AverageWheelPressure - lapEndTirePressure.AverageWheelPressure;
+                    Console.WriteLine($"  Change: {(pressureDelta >= 0 ? "+" : "")}{pressureDelta:F2} PSI");
+                }
+            }
+            hasDisplayedLapPressures = true;
+        }
+        // Display current tire pressures
+        else if (tireData != null)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Tire Pressures: FL: {tireData.WheelPressureFL:F2}  FR: {tireData.WheelPressureFR:F2}  RL: {tireData.WheelPressureRL:F2}  RR: {tireData.WheelPressureRR:F2} PSI");
+            Console.WriteLine($"Avg: {tireData.AverageWheelPressure:F2} PSI (Front: {tireData.AverageFrontPressure:F2}  Rear: {tireData.AverageRearPressure:F2})");
+        }
+
         Thread.Sleep(50); // ~20Hz update rate
     }
 
@@ -417,13 +562,23 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config)
 }
 
 // Adaptive monitor mode - continuously learns and updates shift points
-static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
+static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
 {
     // Initialize dynamic audio engine
     using var audioEngine = new DynAudioEng();
 
     // Initialize ACC shared memory
     using var accMemory = new ACCSharedMemorySimple();
+
+    // Start telemetry server if provided
+    if (telemetryServer != null && !telemetryServer.IsRunning)
+    {
+        if (telemetryServer.Start(accMemory))
+        {
+            Console.WriteLine("✓ Telemetry window opened");
+            Thread.Sleep(1000);
+        }
+    }
 
     // Initialize vehicle detector for real-time vehicle changes
     using var vehicleDetector = new VehicleDetector();
@@ -444,17 +599,30 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
     Console.WriteLine("=== ACC RPM Monitor - Adaptive Mode ===");
     Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
     Console.WriteLine($"Mode: {configManager.CurrentMode} (Adaptive)");
+    if (telemetryServer != null && telemetryServer.IsRunning)
+    {
+        Console.WriteLine($"Telemetry: Streaming to Streamlit (http://localhost:{telemetryServer.Port})");
+    }
     Console.WriteLine("Press ESC to exit | Press F2 to save learned config\n");
 
-    // Audio profile selection
-    Console.WriteLine("Select audio profile:");
-    Console.WriteLine("  1. Normal (responsive tones)");
-    Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
-    Console.Write("Choice: ");
-    var profileChoice = Console.ReadLine();
-    var audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
-    audioEngine.SetAudioProfile(audioProfile);
-    audioEngine.SetMode(DynAudioEng.AudioMode.PerformanceLearning); // Use performance learning audio for adaptive mode
+    // Audio profile selection (skip if provided via command-line)
+    DynAudioEng.AudioProfile audioProfile;
+    if (cmdArgs != null)
+    {
+        audioProfile = cmdArgs.EnduranceSound ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioEngine.SetAudioProfile(audioProfile);
+    }
+    else
+    {
+        Console.WriteLine("Select audio profile:");
+        Console.WriteLine("  1. Normal (responsive tones)");
+        Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
+        Console.Write("Choice: ");
+        var profileChoice = Console.ReadLine();
+        audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioEngine.SetAudioProfile(audioProfile);
+    }
+    // Use default audio mode (standard beeping) for adaptive mode
     Console.WriteLine();
 
     // Main loop state
@@ -462,6 +630,12 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
     int readFailCount = 0;
     DateTime lastUpdate = DateTime.Now;
     const int UpdateIntervalSeconds = 15; // Update shift points every 15 seconds
+
+    // Tire pressure tracking for lap-before/lap-after display
+    WheelAndTireData? lapStartTirePressure = null;
+    WheelAndTireData? lapEndTirePressure = null;
+    int lastCompletedLaps = 0;
+    bool hasDisplayedLapPressures = false;
 
     Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
@@ -507,6 +681,10 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
                 Console.WriteLine("=== ACC RPM Monitor - Adaptive Mode ===");
                 Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
                 Console.WriteLine($"Mode: {configManager.CurrentMode} (Adaptive)");
+                if (telemetryServer != null && telemetryServer.IsRunning)
+                {
+                    Console.WriteLine($"Telemetry: Streaming to Streamlit (http://localhost:{telemetryServer.Port})");
+                }
                 Console.WriteLine("Press ESC to exit | Press F2 to save learned config\n");
                 Console.WriteLine("Connected to ACC!");
                 Console.WriteLine("Learning optimal shift points...\n");
@@ -534,6 +712,8 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
         // Read telemetry with full data (throttle and speed)
         var telemetryData = accMemory.ReadFullTelemetry();
         var status = accMemory.ReadStatus();
+        var tireData = accMemory.ReadWheelAndTireData(); // Read tire pressures
+        var lapTiming = accMemory.ReadLapTiming(); // Read lap timing for lap completion detection
 
         // Handle read failures
         if (telemetryData == null || status == null)
@@ -551,6 +731,33 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
         readFailCount = 0;
 
         var (currentGear, currentRPM, throttle, speed) = telemetryData.Value;
+
+        // Detect lap completion and capture tire pressures
+        if (lapTiming != null && lapTiming.CompletedLaps > lastCompletedLaps)
+        {
+            // Lap was completed - save the end tire pressure from previous frame
+            if (tireData != null && lapEndTirePressure == null)
+            {
+                lapEndTirePressure = tireData;
+            }
+
+            // Prepare for next lap - current tire data becomes start of next lap
+            if (tireData != null)
+            {
+                lapStartTirePressure = tireData;
+            }
+            hasDisplayedLapPressures = false;
+            lastCompletedLaps = lapTiming.CompletedLaps;
+        }
+        else if (lastCompletedLaps == 0 && lapTiming != null && lapTiming.CompletedLaps >= 0)
+        {
+            // Initialize at start of session
+            if (tireData != null)
+            {
+                lapStartTirePressure = tireData;
+            }
+            lastCompletedLaps = lapTiming.CompletedLaps;
+        }
 
         // Only provide audio feedback when actually driving (not in menus/replay)
         bool isDriving = status == 2; // AC_LIVE
@@ -579,6 +786,15 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
             Console.WriteLine($"Status:       Neutral/Reverse                                           ");
             Thread.Sleep(50);
             continue;
+        }
+
+        // Update telemetry server if enabled
+        if (telemetryServer != null && tireData != null)
+        {
+            // Read fuel from physics struct
+            var physics = accMemory.ReadPhysicsStruct();
+            float fuel = physics?.Fuel ?? 0f;
+            telemetryServer.UpdateTelemetry(tireData, currentRPM, currentGear - 1, speed, fuel);
         }
 
         // ACC uses gear 2 as first gear, so subtract 1 for display
@@ -689,6 +905,38 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
             Console.WriteLine($"Status:       {dataStatus} ({Math.Abs(rpmFromThreshold)} RPM from threshold)          ");
         }
 
+        // Show tire pressures before and after lap
+        if ((lapStartTirePressure != null || lapEndTirePressure != null) && !hasDisplayedLapPressures && lapTiming != null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("─── TIRE PRESSURES (PSI) ──────────────────────────────────────");
+            if (lapStartTirePressure != null)
+            {
+                Console.WriteLine($"Start of Lap {lapTiming.CompletedLaps}:");
+                Console.WriteLine($"  FL: {lapStartTirePressure.WheelPressureFL:F2}  FR: {lapStartTirePressure.WheelPressureFR:F2}  RL: {lapStartTirePressure.WheelPressureRL:F2}  RR: {lapStartTirePressure.WheelPressureRR:F2}");
+                Console.WriteLine($"  Avg: {lapStartTirePressure.AverageWheelPressure:F2} PSI");
+            }
+            if (lapEndTirePressure != null)
+            {
+                Console.WriteLine($"End of Lap {lapTiming.CompletedLaps - 1}:");
+                Console.WriteLine($"  FL: {lapEndTirePressure.WheelPressureFL:F2}  FR: {lapEndTirePressure.WheelPressureFR:F2}  RL: {lapEndTirePressure.WheelPressureRL:F2}  RR: {lapEndTirePressure.WheelPressureRR:F2}");
+                Console.WriteLine($"  Avg: {lapEndTirePressure.AverageWheelPressure:F2} PSI");
+                if (lapStartTirePressure != null)
+                {
+                    float pressureDelta = lapStartTirePressure.AverageWheelPressure - lapEndTirePressure.AverageWheelPressure;
+                    Console.WriteLine($"  Change: {(pressureDelta >= 0 ? "+" : "")}{pressureDelta:F2} PSI");
+                }
+            }
+            hasDisplayedLapPressures = true;
+        }
+        // Display current tire pressures
+        else if (tireData != null)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Tire Pressures: FL: {tireData.WheelPressureFL:F2}  FR: {tireData.WheelPressureFR:F2}  RL: {tireData.WheelPressureRL:F2}  RR: {tireData.WheelPressureRR:F2} PSI");
+            Console.WriteLine($"Avg: {tireData.AverageWheelPressure:F2} PSI (Front: {tireData.AverageFrontPressure:F2}  Rear: {tireData.AverageRearPressure:F2})");
+        }
+
         Thread.Sleep(50); // ~20Hz update rate
     }
 
@@ -701,8 +949,8 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
     Console.WriteLine($"Total data points collected: {shiftAnalyzer.GetDataPointCount()}");
     Console.WriteLine();
     Console.Write("Save learned configuration? (Y/N): ");
-    var saveChoice = Console.ReadKey();
-    if (saveChoice.KeyChar == 'Y' || saveChoice.KeyChar == 'y')
+    var saveChoice = Console.ReadLine()?.Trim().ToUpper();
+    if (saveChoice == "Y" || saveChoice == "YES")
     {
         var optimalConfig = shiftAnalyzer.GenerateOptimalConfig();
         if (optimalConfig != null)
@@ -720,13 +968,23 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config)
 }
 
 // Performance Learning monitor mode - AI-driven shift optimization based on lap times
-static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig config)
+static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
 {
     // Initialize all required engines
     using var audioEngine = new DynAudioEng();
     audioEngine.SetMode(DynAudioEng.AudioMode.PerformanceLearning); // Use pitch-based guidance
 
     using var accMemory = new ACCSharedMemorySimple();
+
+    // Start telemetry server if provided
+    if (telemetryServer != null && !telemetryServer.IsRunning)
+    {
+        if (telemetryServer.Start(accMemory))
+        {
+            Console.WriteLine("✓ Telemetry window opened");
+            Thread.Sleep(1000);
+        }
+    }
 
     // Initialize vehicle detector for real-time vehicle changes
     using var vehicleDetector = new VehicleDetector();
@@ -738,7 +996,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     var shiftAnalyzer = new OptimalShift(); // For physics-based analysis
     var shiftPatternAnalyzer = new PatternShift(); // For shift detection
     var learningEngine = new PerformanceEng(shiftPatternAnalyzer, shiftAnalyzer);
-    var reportGenerator = new PatternShiftReport();
+    var reportGenerator = new PatternShiftReport(configManager);
 
     // Initialize gear recommendation engine if available
     GearRecommendationEngine? gearRecommendation = null;
@@ -750,6 +1008,10 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Performance Learning Mode ===");
     Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
+    if (telemetryServer != null && telemetryServer.IsRunning)
+    {
+        Console.WriteLine($"Telemetry: Streaming to Streamlit (http://localhost:{telemetryServer.Port})");
+    }
     Console.WriteLine("This mode uses machine learning to optimize shift points based on lap performance.");
     Console.WriteLine("The system builds confidence through statistical analysis of lap times vs shift patterns.");
     Console.WriteLine();
@@ -772,14 +1034,23 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     }
     Console.WriteLine();
 
-    // Audio profile selection
-    Console.WriteLine("Select audio profile:");
-    Console.WriteLine("  1. Normal (responsive tones)");
-    Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
-    Console.Write("Choice: ");
-    var profileChoice = Console.ReadLine();
-    var audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
-    audioEngine.SetAudioProfile(audioProfile);
+    // Audio profile selection (skip if provided via command-line)
+    DynAudioEng.AudioProfile audioProfile;
+    if (cmdArgs != null)
+    {
+        audioProfile = cmdArgs.EnduranceSound ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioEngine.SetAudioProfile(audioProfile);
+    }
+    else
+    {
+        Console.WriteLine("Select audio profile:");
+        Console.WriteLine("  1. Normal (responsive tones)");
+        Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
+        Console.Write("Choice: ");
+        var profileChoice = Console.ReadLine();
+        audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioEngine.SetAudioProfile(audioProfile);
+    }
     Console.WriteLine();
 
     // Main loop state
@@ -792,6 +1063,12 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     // Off-track detection state
     float lastLocalY = 0;
     const float OffTrackThreshold = 0.5f; // Threshold for detecting off-track
+
+    // Tire pressure tracking for lap-before/lap-after display
+    WheelAndTireData? lapStartTirePressure = null;
+    WheelAndTireData? lapEndTirePressure = null;
+    int lastCompletedLaps = 0;
+    bool hasDisplayedLapPressures = false;
 
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Performance Learning Mode ===");
@@ -842,6 +1119,26 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
 
                 Console.SetCursorPosition(0, 20);
                 Console.WriteLine($"✓ Report saved to: {Path.GetFileName(reportPath)}                           ");
+
+                // Regenerate power curve graph with user's actual shift points if we have auto-config data
+                if (config.IsAutoGenerated && config.AccelerationCurves.Count > 0 && shiftReport.ValidLaps >= 2)
+                {
+                    try
+                    {
+                        var userShifts = PwrCrvGraphGen.ExtractUserShiftPoints(shiftReport);
+                        if (userShifts.Count > 0)
+                        {
+                            string reportsDir = reportGenerator.GetReportsPath();
+                            string graphPath = PwrCrvGraphGen.GenerateGraph(config, configManager.CurrentVehicleName,
+                                                                           Path.Combine(reportsDir, configManager.CurrentVehicleName),
+                                                                           userShifts);
+                            Console.SetCursorPosition(0, 21);
+                            Console.WriteLine($"✓ Updated power curve with your shift points                              ");
+                        }
+                    }
+                    catch { /* Silently fail graph generation */ }
+                }
+
                 Thread.Sleep(2000);
             }
         }
@@ -854,6 +1151,10 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
                 Console.Clear();
                 Console.WriteLine("=== ACC RPM Monitor - Performance Learning ===");
                 Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
+                if (telemetryServer != null && telemetryServer.IsRunning)
+                {
+                    Console.WriteLine($"Telemetry: Streaming to Streamlit (http://localhost:{telemetryServer.Port})");
+                }
                 Console.WriteLine("Connected! Learning from your driving...\n");
                 wasConnected = true;
                 readFailCount = 0;
@@ -879,6 +1180,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         var status = accMemory.ReadStatus();
         var lapTiming = accMemory.ReadLapTiming();
         var position = accMemory.ReadPosition();
+        var tireData = accMemory.ReadWheelAndTireData();
 
         // Handle read failures
         if (telemetryData == null || status == null)
@@ -895,6 +1197,15 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
 
         readFailCount = 0;
         var (currentGear, currentRPM, throttle, speed) = telemetryData.Value;
+
+        // Update telemetry server if enabled
+        if (telemetryServer != null && tireData != null)
+        {
+            // Read fuel from physics struct
+            var physics = accMemory.ReadPhysicsStruct();
+            float fuel = physics?.Fuel ?? 0f;
+            telemetryServer.UpdateTelemetry(tireData, currentRPM, currentGear - 1, speed, fuel);
+        }
 
         // Only provide feedback when actually driving
         bool isDriving = status == 2; // AC_LIVE
@@ -924,6 +1235,9 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         // Convert gear for display (ACC uses gear 2 as first gear)
         int displayGear = currentGear - 1;
 
+        // Detect lap completion BEFORE update
+        int completedLapsBeforeUpdate = lastCompletedLaps;
+
         // Update shift pattern analyzer
         if (currentGear >= 1 && lapTiming != null && position != null && displayGear >= 1)
         {
@@ -939,6 +1253,33 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
 
             // Also feed data to acceleration analyzer for physics-based learning
             shiftAnalyzer.AddDataPoint(currentRPM, throttle, speed, displayGear);
+        }
+
+        // Detect lap completion and capture tire pressures
+        if (lapTiming != null && lapTiming.CompletedLaps > completedLapsBeforeUpdate)
+        {
+            // Lap was completed - save the end tire pressure from previous frame
+            if (tireData != null && lapEndTirePressure == null)
+            {
+                lapEndTirePressure = tireData;
+            }
+
+            // Prepare for next lap - current tire data becomes start of next lap
+            if (tireData != null)
+            {
+                lapStartTirePressure = tireData;
+            }
+            hasDisplayedLapPressures = false;
+            lastCompletedLaps = lapTiming.CompletedLaps;
+        }
+        else if (lastCompletedLaps == 0 && lapTiming != null && lapTiming.CompletedLaps >= 0)
+        {
+            // Initialize at start of session
+            if (tireData != null)
+            {
+                lapStartTirePressure = tireData;
+            }
+            lastCompletedLaps = lapTiming.CompletedLaps;
         }
 
         // Periodically update shift points from learning
@@ -1013,6 +1354,31 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
             Console.WriteLine($"Is Valid Lap:    {lapTiming.IsCurrentLapValid} (current lap in progress)");
         }
 
+        // Show tire pressures before and after lap
+        if ((lapStartTirePressure != null || lapEndTirePressure != null) && !hasDisplayedLapPressures && lapTiming != null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("─── TIRE PRESSURES (PSI) ──────────────────────────────────────");
+            if (lapStartTirePressure != null)
+            {
+                Console.WriteLine($"Start of Lap {lapTiming.CompletedLaps}:");
+                Console.WriteLine($"  FL: {lapStartTirePressure.WheelPressureFL:F2}  FR: {lapStartTirePressure.WheelPressureFR:F2}  RL: {lapStartTirePressure.WheelPressureRL:F2}  RR: {lapStartTirePressure.WheelPressureRR:F2}");
+                Console.WriteLine($"  Avg: {lapStartTirePressure.AverageWheelPressure:F2} PSI");
+            }
+            if (lapEndTirePressure != null)
+            {
+                Console.WriteLine($"End of Lap {lapTiming.CompletedLaps - 1}:");
+                Console.WriteLine($"  FL: {lapEndTirePressure.WheelPressureFL:F2}  FR: {lapEndTirePressure.WheelPressureFR:F2}  RL: {lapEndTirePressure.WheelPressureRL:F2}  RR: {lapEndTirePressure.WheelPressureRR:F2}");
+                Console.WriteLine($"  Avg: {lapEndTirePressure.AverageWheelPressure:F2} PSI");
+                if (lapStartTirePressure != null)
+                {
+                    float pressureDelta = lapStartTirePressure.AverageWheelPressure - lapEndTirePressure.AverageWheelPressure;
+                    Console.WriteLine($"  Change: {(pressureDelta >= 0 ? "+" : "")}{pressureDelta:F2} PSI");
+                }
+            }
+            hasDisplayedLapPressures = true;
+        }
+
         // Show recommendation for current gear
         if (recommendation.HasRecommendation)
         {
@@ -1076,9 +1442,34 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         Console.WriteLine($"  {reportPath}");
         Console.WriteLine();
 
+        // Regenerate power curve graph with user's actual shift points if we have auto-config data
+        if (config.IsAutoGenerated && config.AccelerationCurves.Count > 0)
+        {
+            try
+            {
+                var userShifts = PwrCrvGraphGen.ExtractUserShiftPoints(shiftReport);
+                if (userShifts.Count > 0)
+                {
+                    Console.WriteLine("Updating power curve graph with your actual shift points...");
+                    string reportsDir = reportGenerator.GetReportsPath();
+                    string graphPath = PwrCrvGraphGen.GenerateGraph(config, configManager.CurrentVehicleName,
+                                                                   Path.Combine(reportsDir, configManager.CurrentVehicleName),
+                                                                   userShifts);
+                    Console.WriteLine($"Updated graph saved to:");
+                    Console.WriteLine($"  {graphPath}");
+                    Console.WriteLine();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Could not update power curve graph: {ex.Message}");
+                Console.WriteLine();
+            }
+        }
+
         Console.Write("Save learned shift points to configuration? (Y/N): ");
-        var saveChoice = Console.ReadKey();
-        if (saveChoice.KeyChar == 'Y' || saveChoice.KeyChar == 'y')
+        var saveChoice = Console.ReadLine()?.Trim().ToUpper();
+        if (saveChoice == "Y" || saveChoice == "YES")
         {
             var learnedPoints = learningEngine.GenerateOptimalShiftPoints();
             foreach (var kvp in learnedPoints)
@@ -1113,5 +1504,60 @@ static string GetStatusName(int status)
         _ => $"UNKNOWN ({status})"
     };
 }
+
+// Toggle telemetry server on/off
+static TelemetryServer? ToggleTelemetryServer(TelemetryServer? currentServer)
+{
+    if (currentServer != null && currentServer.IsRunning)
+    {
+        // Stop the server
+        Console.Clear();
+        Console.WriteLine("=== Stop Telemetry Server ===\n");
+        Console.WriteLine("Stopping telemetry server...");
+        currentServer.Stop();
+        currentServer.Dispose();
+        Console.WriteLine("✓ Telemetry server stopped");
+        Console.WriteLine("✓ Streamlit dashboard closed");
+        Console.WriteLine("\nPress any key to return to main menu...");
+        Console.ReadKey();
+        return null;
+    }
+    else
+    {
+        // Start the server
+        Console.Clear();
+        Console.WriteLine("=== Start Telemetry Server ===\n");
+        Console.WriteLine("Starting telemetry server...");
+
+        var server = new TelemetryServer();
+        var accMemory = new ACCSharedMemorySimple();
+
+        if (server.Start(accMemory))
+        {
+            Console.WriteLine($"✓ Telemetry server started on http://localhost:{server.Port}/telemetry");
+            Console.WriteLine($"✓ Streamlit dashboard launching at http://localhost:8501");
+            Console.WriteLine();
+            Console.WriteLine("The telemetry server is now running in the background.");
+            Console.WriteLine("You can now:");
+            Console.WriteLine("  • Go to option [3] to start monitoring (data will stream automatically)");
+            Console.WriteLine("  • View the dashboard in your browser at http://localhost:8501");
+            Console.WriteLine("  • Return here to stop the server (option [4])");
+            Console.WriteLine();
+            Console.WriteLine("Note: The dashboard will update when you start monitoring and ACC is running.");
+            Console.WriteLine("\nPress any key to return to main menu...");
+            Console.ReadKey();
+            return server;
+        }
+        else
+        {
+            Console.WriteLine("✗ Failed to start telemetry server");
+            Console.WriteLine("\nPress any key to return to main menu...");
+            Console.ReadKey();
+            return null;
+        }
+    }
+}
+
+// Handle direct launch from command-line arguments
 
 

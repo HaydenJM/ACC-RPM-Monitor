@@ -1,0 +1,148 @@
+pub struct GraphicsMap {
+    // Metadata
+    pub packet_id: i32,
+    pub status: AccStatus,
+    pub session_type: AccSessionType,
+    pub session_index: i32,
+
+    // Lap Timing & Positioning
+    pub current_time_str: String,
+    pub last_time_str: String,
+    pub best_time_str: String,
+    pub last_sector_time_str: String,
+    pub completed_lap: i32,
+    pub position: i32,
+    pub current_time: i32,
+    pub last_time: i32,
+    pub best_time: i32,
+    pub last_sector_time: i32,
+    pub number_of_laps: i32,
+    pub delta_lap_time_str: String,
+    pub estimated_lap_time_str: String,
+    pub delta_lap_time: i32,
+    pub estimated_lap_time: i32,
+    pub is_delta_positive: bool,
+    pub is_valid_lap: bool,
+    pub fuel_estimated_laps: f32,
+    pub distance_traveled: f32,
+    pub normalized_car_position: f32,
+    pub session_time_left: f32,
+    pub current_sector_index: i32,
+
+    // Car & Pit Status
+    pub is_in_pit: bool,
+    pub is_in_pit_lane: bool,
+    pub ideal_line_on: bool,
+    pub mandatory_pit_done: bool,
+    pub missing_mandatory_pits: i32,
+    pub penalty_time: f32,
+    pub penalty: AccPenaltyType,
+    pub flag: AccFlagType,
+
+    // Player/Car Identifiers
+    pub car_coordinates: Vec<Vector3f>,
+    pub car_id: Vec<i32>,
+    pub player_car_id: i32,
+    pub active_cars: i32,
+
+    // Environment & Conditions
+    pub wind_speed: f32,
+    pub wind_direction: f32,
+    pub rain_intensity: AccRainIntensity,
+    pub rain_intensity_in_10min: AccRainIntensity,
+    pub rain_intensity_in_30min: AccRainIntensity,
+    pub track_grip_status: AccTrackGripStatus,
+    pub track_status: String,
+    pub clock: f32,
+
+    // Driver & Controls
+    pub tc_level: i32,
+    pub tc_cut_level: i32,
+    pub engine_map: i32,
+    pub abs_level: i32,
+    pub wiper_stage: i32,
+    pub driver_stint_total_time_left: i32,
+    pub driver_stint_time_left: i32,
+    pub rain_tyres: bool,
+
+    // Lighting & Signals
+    pub rain_light: bool,
+    pub flashing_light: bool,
+    pub light_stage: i32,
+    pub direction_light_left: bool,
+    pub direction_light_right: bool,
+
+    // Setup/Interface State
+    pub tyre_compound: String,
+    pub is_setup_menu_visible: bool,
+    pub main_display_index: i32,
+    pub secondary_display_index: i32,
+
+    // Telemetry Extras
+    pub fuel_per_lap: f32,
+    pub used_fuel: f32,
+    pub exhaust_temp: f32,
+    pub gap_ahead: i32,
+    pub gap_behind: i32,
+
+    // Race Control Flags
+    pub global_yellow: bool,
+    pub global_yellow_s1: bool,
+    pub global_yellow_s2: bool,
+    pub global_yellow_s3: bool,
+    pub global_white: bool,
+    pub global_green: bool,
+    pub global_chequered: bool,
+    pub global_red: bool,
+
+    // MFD (Multifunction Display) Inputs
+    pub mfd_tyre_set: i32,
+    pub mfd_fuel_to_add: f32,
+    pub mfd_tyre_pressure: Wheels,
+
+    // Tyre Strategy
+    pub current_tyre_set: i32,
+    pub strategy_tyre_set: i32,
+}
+
+impl GraphicsMap {
+    /// Check if the session is currently active
+    pub fn is_session_active(&self) -> bool {
+        self.status.is_active()
+    }
+
+    /// Check if there are any yellow flags active
+    pub fn has_yellow_flags(&self) -> bool {
+        self.global_yellow
+            || self.global_yellow_s1
+            || self.global_yellow_s2
+            || self.global_yellow_s3
+            || self.flag == AccFlagType::YellowFlag
+    }
+
+    /// Check if conditions are wet
+    pub fn is_wet_conditions(&self) -> bool {
+        self.rain_intensity.is_wet() || self.track_grip_status.is_wet()
+    }
+
+    /// Get the current lap time in seconds
+    pub fn current_lap_time_seconds(&self) -> f32 {
+        self.current_time as f32 / 1000.0
+    }
+
+    /// Get the last lap time in seconds
+    pub fn last_lap_time_seconds(&self) -> f32 {
+        self.last_time as f32 / 1000.0
+    }
+
+    /// Get the best lap time in seconds
+    pub fn best_lap_time_seconds(&self) -> f32 {
+        self.best_time as f32 / 1000.0
+    }
+
+    /// Check if driver is currently serving a penalty
+    pub fn has_active_penalty(&self) -> bool {
+        self.penalty != AccPenaltyType::None && self.penalty != AccPenaltyType::Unknown
+    }
+}
+

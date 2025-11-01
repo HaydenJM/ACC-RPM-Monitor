@@ -1,0 +1,109 @@
+pub struct PhysicsMap {
+    // Metadata
+    pub packet_id: i32,
+
+    // Driver Inputs
+    pub gas: f32,
+    pub brake: f32,
+    pub clutch: f32,
+    pub steer_angle: f32,
+    pub gear: i32,
+    pub rpm: i32,
+    pub autoshifter_on: bool,
+    pub ignition_on: bool,
+    pub starter_engine_on: bool,
+    pub is_engine_running: bool,
+
+    // Car Dynamics & Motion
+    pub speed_kmh: f32,
+    pub velocity: Vector3f,
+    pub local_velocity: Vector3f,
+    pub local_angular_vel: Vector3f,
+    pub g_force: Vector3f,
+    pub heading: f32,
+    pub pitch: f32,
+    pub roll: f32,
+    pub final_ff: f32,
+
+    // Wheels & Tyres
+    pub wheel_slip: Wheels,
+    pub wheel_pressure: Wheels,
+    pub wheel_angular_speed: Wheels,
+    pub tyre_core_temp: Wheels,
+    pub suspension_travel: Wheels,
+    pub brake_temp: Wheels,
+    pub brake_pressure: Wheels,
+    pub suspension_damage: Wheels,
+    pub slip_ratio: Wheels,
+    pub slip_angle: Wheels,
+    pub pad_life: Wheels,
+    pub disc_life: Wheels,
+    pub front_brake_compound: i32,
+    pub rear_brake_compound: i32,
+
+    // Tyre Contact Patches (3D)
+    pub tyre_contact_point: ContactPoint,
+    pub tyre_contact_normal: ContactPoint,
+    pub tyre_contact_heading: ContactPoint,
+
+    // Car Status
+    pub fuel: f32,
+    pub tc: f32,
+    pub abs: f32,
+    pub pit_limiter_on: bool,
+    pub turbo_boost: f32,
+    pub air_temp: f32,
+    pub road_temp: f32,
+    pub water_temp: f32,
+    pub car_damage: CarDamage,
+    pub is_ai_controlled: bool,
+    pub brake_bias: f32,
+
+    // Vibration Feedback
+    pub kerb_vibration: f32,
+    pub slip_vibration: f32,
+    pub g_vibration: f32,
+    pub abs_vibration: f32,
+}
+
+impl PhysicsMap {
+    /// Compare two PhysicsMap instances for equality based on suspension travel.
+    /// This is used to detect when fresh telemetry data is available.
+    pub fn is_equal(&self, other: &PhysicsMap) -> bool {
+        self.suspension_travel == other.suspension_travel
+    }
+
+    /// Check if the car is currently moving
+    pub fn is_moving(&self) -> bool {
+        self.speed_kmh > 1.0
+    }
+
+    /// Check if the car is on track (not in pit)
+    pub fn is_on_track(&self) -> bool {
+        !self.pit_limiter_on
+    }
+
+    /// Get the maximum tyre temperature
+    pub fn max_tyre_temp(&self) -> f32 {
+        [
+            self.tyre_core_temp.front_left,
+            self.tyre_core_temp.front_right,
+            self.tyre_core_temp.rear_left,
+            self.tyre_core_temp.rear_right,
+        ]
+        .iter()
+        .fold(f32::NEG_INFINITY, |a, &b| a.max(b))
+    }
+
+    /// Get the maximum brake temperature
+    pub fn max_brake_temp(&self) -> f32 {
+        [
+            self.brake_temp.front_left,
+            self.brake_temp.front_right,
+            self.brake_temp.rear_left,
+            self.brake_temp.rear_right,
+        ]
+        .iter()
+        .fold(f32::NEG_INFINITY, |a, &b| a.max(b))
+    }
+}

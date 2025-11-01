@@ -3,15 +3,32 @@ using System.Runtime.InteropServices;
 
 namespace ACCRPMMonitor;
 
-// Reads ACC telemetry from shared memory - just the essentials (gear and RPM)
+/// <summary>
+/// ACC Shared Memory API - Reads telemetry from Assetto Corsa Competizione
+///
+/// ACC exposes telemetry through three named memory-mapped files:
+/// - "Local\\acpmf_physics"  - Real-time physics data (67 fields): car dynamics, inputs, wheels, temperatures
+/// - "Local\\acpmf_graphics" - Graphics/UI data (106 fields): lap times, session info, flags, weather
+/// - "Local\\acpmf_static"   - Static session data (40 fields): track, car model, player info, aids
+///
+/// IMPLEMENTATION NOTES:
+/// - Current implementation reads fields by manual offset calculation
+/// - RECOMMENDED: Map complete structs using [StructLayout(LayoutKind.Sequential)] for reliability
+/// - ACC uses metric units: BAR for pressure, km/h for speed, Celsius for temperature
+/// - Conversions applied: BAR → PSI (×14.5038)
+///
+/// See physics_map.txt, graphics_map.txt, statics_map.txt for complete field definitions
+/// </summary>
 public class ACCSharedMemorySimple : IDisposable
 {
     private MemoryMappedFile? _physicsMMF;
     private MemoryMappedFile? _graphicsMMF;
     private int _detectedMaxGear = 6; // Track highest gear seen (GT3=6, Road cars=6-7, etc.)
 
+    // ACC named memory-mapped files (created by ACC when game is running)
     private const string PhysicsMMFName = "Local\\acpmf_physics";
     private const string GraphicsMMFName = "Local\\acpmf_graphics";
+    private const string StaticsMMFName = "Local\\acpmf_static"; // Not yet implemented
 
     // Attempts to connect to ACC's shared memory
     public bool Connect()
@@ -97,6 +114,76 @@ public class ACCSharedMemorySimple : IDisposable
         }
     }
 
+    // Reads wheel pressure and tire core temperature data
+    public WheelAndTireData? ReadWheelAndTireData()
+    {
+        if (_physicsMMF == null)
+        {
+            Console.WriteLine("[DEBUG] ReadWheelAndTireData: _physicsMMF is null");
+            return null;
+        }
+
+        try
+        {
+            using var accessor = _physicsMMF.CreateViewAccessor(0, 2048, MemoryMappedFileAccess.Read);
+
+            // Based on reference Physics.cs struct layout:
+            // PacketId(4) + Gas(4) + Brake(4) + Fuel(4) + Gear(4) + Rpms(4) + SteerAngle(4) + SpeedKmh(4) = 32 bytes
+            // Velocity[3](12) + AccG[3](12) + WheelSlip[4](16) + WheelLoad[4](16) = 56 bytes
+            // Total before WheelPressure = 88 bytes
+            // WheelPressure[4] at offset 88 (4 floats = 16 bytes)
+            // WheelAngularSpeed[4](16) + TyreWear[4](16) + TyreDirtyLevel[4](16) = 48 bytes
+            // TyreCoreTemp[4] at offset 88 + 16 + 48 = 152 bytes
+
+            int wheelPressureOffset = 88;  // 4 floats: FL, FR, RL, RR
+            int tyreTempOffset = 152;       // 4 floats: FL, FR, RL, RR
+
+            float[] wheelPressure = new float[4];
+            float[] tyreCoreTemp = new float[4];
+
+            // Read wheel pressures (already in PSI)
+            for (int i = 0; i < 4; i++)
+            {
+                wheelPressure[i] = accessor.ReadSingle(wheelPressureOffset + (i * 4));
+            }
+
+            // Read tire core temperatures (in Celsius)
+            for (int i = 0; i < 4; i++)
+            {
+                tyreCoreTemp[i] = accessor.ReadSingle(tyreTempOffset + (i * 4));
+            }
+
+            // Debug output - show raw values
+            Console.WriteLine($"[DEBUG] Tire Data - Pressure: FL={wheelPressure[0]:F1} FR={wheelPressure[1]:F1} RL={wheelPressure[2]:F1} RR={wheelPressure[3]:F1}");
+            Console.WriteLine($"[DEBUG] Tire Data - Temp: FL={tyreCoreTemp[0]:F1} FR={tyreCoreTemp[1]:F1} RL={tyreCoreTemp[2]:F1} RR={tyreCoreTemp[3]:F1}");
+
+            // Check if all values are zero (likely wrong offsets)
+            if (wheelPressure[0] == 0 && wheelPressure[1] == 0 && wheelPressure[2] == 0 && wheelPressure[3] == 0 &&
+                tyreCoreTemp[0] == 0 && tyreCoreTemp[1] == 0 && tyreCoreTemp[2] == 0 && tyreCoreTemp[3] == 0)
+            {
+                Console.WriteLine("[DEBUG] All values are zero - possibly wrong offsets or ACC not in session");
+            }
+
+            return new WheelAndTireData
+            {
+                WheelPressureFL = wheelPressure[0],
+                WheelPressureFR = wheelPressure[1],
+                WheelPressureRL = wheelPressure[2],
+                WheelPressureRR = wheelPressure[3],
+                TyreCoreTempFL = tyreCoreTemp[0],
+                TyreCoreTempFR = tyreCoreTemp[1],
+                TyreCoreTempRL = tyreCoreTemp[2],
+                TyreCoreTempRR = tyreCoreTemp[3]
+            };
+        }
+        catch (Exception ex)
+        {
+            LastError = $"Wheel/Tire data read error: {ex.Message}";
+            Console.WriteLine($"[DEBUG] Exception in ReadWheelAndTireData: {ex.Message}");
+            return null;
+        }
+    }
+
     // Reads ACC status from graphics memory (0=OFF, 1=REPLAY, 2=LIVE, 3=PAUSE)
     public int? ReadStatus()
     {
@@ -148,10 +235,34 @@ public class ACCSharedMemorySimple : IDisposable
 
         try
         {
+            // Try using the new struct-based API first (more reliable)
+            var graphics = ReadGraphicsStruct();
+            if (graphics.HasValue)
+            {
+                var g = graphics.Value;
+
+                // Use the struct's string fields, but fall back to formatting from ms values if strings are empty/invalid
+                string currentTimeStr = FormatTimeStringOrUseMs(g.CurrentTime, g.CurrentTimeMs);
+                string lastTimeStr = FormatTimeStringOrUseMs(g.LastTime, g.LastTimeMs);
+                string bestTimeStr = FormatTimeStringOrUseMs(g.BestTime, g.BestTimeMs);
+
+                return new LapTimingData
+                {
+                    CurrentLapTime = currentTimeStr,
+                    LastLapTime = lastTimeStr,
+                    BestLapTime = bestTimeStr,
+                    CompletedLaps = g.CompletedLaps,
+                    LastLapTimeMs = g.LastTimeMs,
+                    IsCurrentLapValid = g.IsValidLap,
+                    Status = g.Status,
+                    SessionType = g.SessionType,
+                    SessionTimeLeft = g.SessionTimeLeft
+                };
+            }
+
+            // Fallback to old offset-based reading if struct reading fails
             using var accessor = _graphicsMMF.CreateViewAccessor(0, 2048, MemoryMappedFileAccess.Read);
 
-            // ACC Graphics structure offsets (based on SPageFileGraphic from ACC SDK)
-            int packetId = accessor.ReadInt32(0);
             int status = accessor.ReadInt32(4);
             int sessionType = accessor.ReadInt32(8);
 
@@ -160,34 +271,20 @@ public class ACCSharedMemorySimple : IDisposable
             byte[] lastTimeBytes = new byte[30];
             byte[] bestTimeBytes = new byte[30];
 
-            accessor.ReadArray(12, currentTimeBytes, 0, 30);   // Offset 12
-            accessor.ReadArray(42, lastTimeBytes, 0, 30);      // Offset 42
-            accessor.ReadArray(72, bestTimeBytes, 0, 30);      // Offset 72
-            // last_sector_time_str at offset 102 (skip)
+            accessor.ReadArray(12, currentTimeBytes, 0, 30);
+            accessor.ReadArray(42, lastTimeBytes, 0, 30);
+            accessor.ReadArray(72, bestTimeBytes, 0, 30);
 
-            int completedLaps = accessor.ReadInt32(132);       // Offset 132: completed_lap
-            int lastTime = accessor.ReadInt32(144);            // Offset 144: last_time (milliseconds)
+            int completedLaps = accessor.ReadInt32(132);
+            int currentTimeMs = accessor.ReadInt32(136);
+            int lastTimeMs = accessor.ReadInt32(144);
+            int bestTimeMs = accessor.ReadInt32(148);
+            int isValidLap = accessor.ReadInt32(1408);
 
-            // Read is_valid_lap from offset 1408 (based on ACC shared memory structure)
-            // This field indicates if the CURRENT lap (in progress) is valid
-            // Works reliably in practice/qualifying, less reliable in races
-            int isValidLap = accessor.ReadInt32(1408);         // Offset 1408: is_valid_lap
-
-            // Parse lap times
-            var currentLapStr = ParseTimeString(currentTimeBytes);
-            var lastLapStr = ParseTimeString(lastTimeBytes);
-            var bestLapStr = ParseTimeString(bestTimeBytes);
-
-            // If string parsing failed, try to use the millisecond value for lastTime
-            // Format it as MM:SS.mmm
-            if (lastLapStr == "00:00.000" && lastTime > 0)
-            {
-                int totalSeconds = lastTime / 1000;
-                int minutes = totalSeconds / 60;
-                int seconds = totalSeconds % 60;
-                int milliseconds = lastTime % 1000;
-                lastLapStr = $"{minutes}:{seconds:D2}.{milliseconds:D3}";
-            }
+            // Parse strings and use ms values as fallback
+            var currentLapStr = FormatTimeStringOrUseMs(ParseTimeString(currentTimeBytes), currentTimeMs);
+            var lastLapStr = FormatTimeStringOrUseMs(ParseTimeString(lastTimeBytes), lastTimeMs);
+            var bestLapStr = FormatTimeStringOrUseMs(ParseTimeString(bestTimeBytes), bestTimeMs);
 
             return new LapTimingData
             {
@@ -195,7 +292,7 @@ public class ACCSharedMemorySimple : IDisposable
                 LastLapTime = lastLapStr,
                 BestLapTime = bestLapStr,
                 CompletedLaps = completedLaps,
-                LastLapTimeMs = lastTime,
+                LastLapTimeMs = lastTimeMs,
                 IsCurrentLapValid = isValidLap != 0,
                 Status = status,
                 SessionType = sessionType
@@ -206,6 +303,28 @@ public class ACCSharedMemorySimple : IDisposable
             LastError = $"Lap timing read error: {ex.Message}";
             return null;
         }
+    }
+
+    // Helper method: Use the string if valid, otherwise format from milliseconds
+    private string FormatTimeStringOrUseMs(string timeStr, int timeMs)
+    {
+        // If string is valid (not empty and contains colon), use it
+        if (!string.IsNullOrEmpty(timeStr) && timeStr.Contains(":") && timeStr != "00:00.000")
+        {
+            return timeStr;
+        }
+
+        // Otherwise format from milliseconds
+        if (timeMs > 0)
+        {
+            int totalSeconds = timeMs / 1000;
+            int minutes = totalSeconds / 60;
+            int seconds = totalSeconds % 60;
+            int milliseconds = timeMs % 1000;
+            return $"{minutes}:{seconds:D2}.{milliseconds:D3}";
+        }
+
+        return "00:00.000";
     }
 
     // Reads position data to detect off-track events
@@ -287,6 +406,127 @@ public class ACCSharedMemorySimple : IDisposable
 
     public string? LastError { get; private set; }
 
+    // ==================== STRUCT-BASED API (Recommended Approach) ====================
+
+    /// <summary>
+    /// Reads the complete physics structure using proper struct mapping.
+    /// This is more reliable than manual offset reading.
+    /// </summary>
+    public ACCPhysics? ReadPhysicsStruct()
+    {
+        if (_physicsMMF == null)
+            return null;
+
+        try
+        {
+            using var accessor = _physicsMMF.CreateViewAccessor(0, Marshal.SizeOf<ACCPhysics>(), MemoryMappedFileAccess.Read);
+
+            byte[] buffer = new byte[Marshal.SizeOf<ACCPhysics>()];
+            accessor.ReadArray(0, buffer, 0, buffer.Length);
+
+            GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            try
+            {
+                var physics = Marshal.PtrToStructure<ACCPhysics>(handle.AddrOfPinnedObject());
+                return physics;
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+        catch (Exception ex)
+        {
+            LastError = $"Physics struct read error: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the complete graphics structure using proper struct mapping.
+    /// This is more reliable than manual offset reading.
+    /// </summary>
+    public ACCGraphics? ReadGraphicsStruct()
+    {
+        if (_graphicsMMF == null)
+            return null;
+
+        try
+        {
+            using var accessor = _graphicsMMF.CreateViewAccessor(0, Marshal.SizeOf<ACCGraphics>(), MemoryMappedFileAccess.Read);
+
+            byte[] buffer = new byte[Marshal.SizeOf<ACCGraphics>()];
+            accessor.ReadArray(0, buffer, 0, buffer.Length);
+
+            GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            try
+            {
+                var graphics = Marshal.PtrToStructure<ACCGraphics>(handle.AddrOfPinnedObject());
+                return graphics;
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+        catch (Exception ex)
+        {
+            LastError = $"Graphics struct read error: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the complete statics structure using proper struct mapping.
+    /// This provides session information like track name, max RPM, player info.
+    /// </summary>
+    public ACCStatics? ReadStaticsStruct()
+    {
+        try
+        {
+            // Open statics memory-mapped file
+            using var staticsMMF = MemoryMappedFile.OpenExisting(StaticsMMFName, MemoryMappedFileRights.Read);
+            using var accessor = staticsMMF.CreateViewAccessor(0, Marshal.SizeOf<ACCStatics>(), MemoryMappedFileAccess.Read);
+
+            byte[] buffer = new byte[Marshal.SizeOf<ACCStatics>()];
+            accessor.ReadArray(0, buffer, 0, buffer.Length);
+
+            GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            try
+            {
+                var statics = Marshal.PtrToStructure<ACCStatics>(handle.AddrOfPinnedObject());
+                return statics;
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+        catch (Exception ex)
+        {
+            LastError = $"Statics struct read error: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads just the track name from ACC static memory
+    /// </summary>
+    public string? ReadTrackName()
+    {
+        var statics = ReadStaticsStruct();
+        return statics?.Track;
+    }
+
+    /// <summary>
+    /// Reads just the car model from ACC static memory
+    /// </summary>
+    public string? ReadCarModel()
+    {
+        var statics = ReadStaticsStruct();
+        return statics?.CarModel;
+    }
+
     public void Dispose()
     {
         _physicsMMF?.Dispose();
@@ -307,6 +547,7 @@ public class LapTimingData
     public int Status { get; set; }
     public int SessionType { get; set; }
     public bool IsCurrentLapValid { get; set; }
+    public float SessionTimeLeft { get; set; } // Session time remaining in seconds
 
     // Parse time string to milliseconds for comparison
     public int ParseTimeToMs(string timeStr)
@@ -343,4 +584,30 @@ public class PositionData
     public float LocalY { get; set; }
     public float LocalZ { get; set; }
     public float NormalizedPosition { get; set; }
+}
+
+// Wheel and tire telemetry data
+public class WheelAndTireData
+{
+    // Wheel pressures in PSI (Front Left, Front Right, Rear Left, Rear Right)
+    public float WheelPressureFL { get; set; }
+    public float WheelPressureFR { get; set; }
+    public float WheelPressureRL { get; set; }
+    public float WheelPressureRR { get; set; }
+
+    // Tire core temperatures in Celsius
+    public float TyreCoreTempFL { get; set; }
+    public float TyreCoreTempFR { get; set; }
+    public float TyreCoreTempRL { get; set; }
+    public float TyreCoreTempRR { get; set; }
+
+    // Helper properties for average values
+    public float AverageWheelPressure => (WheelPressureFL + WheelPressureFR + WheelPressureRL + WheelPressureRR) / 4f;
+    public float AverageTyreCoreTemp => (TyreCoreTempFL + TyreCoreTempFR + TyreCoreTempRL + TyreCoreTempRR) / 4f;
+
+    // Helper properties for front/rear averages
+    public float AverageFrontPressure => (WheelPressureFL + WheelPressureFR) / 2f;
+    public float AverageRearPressure => (WheelPressureRL + WheelPressureRR) / 2f;
+    public float AverageFrontTemp => (TyreCoreTempFL + TyreCoreTempFR) / 2f;
+    public float AverageRearTemp => (TyreCoreTempRL + TyreCoreTempRR) / 2f;
 }
