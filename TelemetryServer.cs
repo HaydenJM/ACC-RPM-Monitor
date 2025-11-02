@@ -266,11 +266,25 @@ public class TelemetryServer : IDisposable
             _listener.Close();
         }
 
-        // Close WPF window
-        _telemetryWindow?.Dispatcher.Invoke(() =>
+        // Close WPF window if it exists and dispatcher is still running
+        try
         {
-            _telemetryWindow?.Close();
-        });
+            if (_telemetryWindow != null && !_telemetryWindow.Dispatcher.HasShutdownStarted)
+            {
+                _telemetryWindow.Dispatcher.Invoke(() =>
+                {
+                    _telemetryWindow?.Close();
+                });
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Window already closed, ignore
+        }
+        catch (Exception)
+        {
+            // Ignore any other dispatcher-related errors during shutdown
+        }
 
         Console.WriteLine("Telemetry display stopped");
     }
