@@ -15,10 +15,7 @@ public partial class TelemetryWindow : Window
     private const int MaxDataPoints = 60; // Keep last 60 data points (1 minute at 1Hz)
 
     // ScottPlot data streamers for live updates
-    private DataStreamer? _pressurePlot;
-    private DataStreamer? _tempPlot;
     private DataStreamer? _rpmPlot;
-    private DataStreamer? _speedPlot;
     private DataStreamer? _gearPlot;
 
     public TelemetryWindow()
@@ -29,53 +26,39 @@ public partial class TelemetryWindow : Window
 
     private void InitializeCharts()
     {
-        // Configure tire trends chart
+        // Configure RPM chart
         TireTrendsPlot.Plot.Clear();
-        TireTrendsPlot.Plot.Axes.Left.Label.Text = "PSI / °C";
+        TireTrendsPlot.Plot.Axes.Left.Label.Text = "RPM";
         TireTrendsPlot.Plot.Axes.Bottom.Label.Text = "Time (s)";
         TireTrendsPlot.Plot.FigureBackground.Color = Colors.Transparent;
         TireTrendsPlot.Plot.DataBackground.Color = Color.FromHex("#1A1A1A");
         TireTrendsPlot.Plot.Axes.Color(Color.FromHex("#AAAAAA"));
         TireTrendsPlot.Plot.Grid.MajorLineColor = Color.FromHex("#333333");
 
-        _pressurePlot = TireTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
-        _pressurePlot.Color = Color.FromHex("#00FF00");
-        _pressurePlot.LineWidth = 2;
-        _pressurePlot.LegendText = "Pressure (PSI)";
-
-        _tempPlot = TireTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
-        _tempPlot.Color = Color.FromHex("#FF8800");
-        _tempPlot.LineWidth = 2;
-        _tempPlot.LegendText = "Temp (°C)";
+        _rpmPlot = TireTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
+        _rpmPlot.Color = Color.FromHex("#FF0000");
+        _rpmPlot.LineWidth = 2;
+        _rpmPlot.LegendText = "RPM";
 
         TireTrendsPlot.Plot.ShowLegend(Alignment.UpperLeft);
         TireTrendsPlot.Plot.Legend.BackgroundColor = Color.FromHex("#CC000000");
         TireTrendsPlot.Plot.Legend.FontColor = Colors.White;
         TireTrendsPlot.Plot.Legend.OutlineColor = Colors.Transparent;
 
-        // Configure performance trends chart
+        // Configure gear chart (step style)
         PerformanceTrendsPlot.Plot.Clear();
-        PerformanceTrendsPlot.Plot.Axes.Left.Label.Text = "RPM / Speed / Gear";
+        PerformanceTrendsPlot.Plot.Axes.Left.Label.Text = "Gear";
         PerformanceTrendsPlot.Plot.Axes.Bottom.Label.Text = "Time (s)";
         PerformanceTrendsPlot.Plot.FigureBackground.Color = Colors.Transparent;
         PerformanceTrendsPlot.Plot.DataBackground.Color = Color.FromHex("#1A1A1A");
         PerformanceTrendsPlot.Plot.Axes.Color(Color.FromHex("#AAAAAA"));
         PerformanceTrendsPlot.Plot.Grid.MajorLineColor = Color.FromHex("#333333");
 
-        _rpmPlot = PerformanceTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
-        _rpmPlot.Color = Color.FromHex("#FF0000");
-        _rpmPlot.LineWidth = 2;
-        _rpmPlot.LegendText = "RPM / 10";
-
-        _speedPlot = PerformanceTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
-        _speedPlot.Color = Color.FromHex("#00FFFF");
-        _speedPlot.LineWidth = 2;
-        _speedPlot.LegendText = "Speed (km/h)";
-
         _gearPlot = PerformanceTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
         _gearPlot.Color = Color.FromHex("#FFFF00");
         _gearPlot.LineWidth = 2;
-        _gearPlot.LegendText = "Gear * 20";
+        _gearPlot.LegendText = "Gear";
+        _gearPlot.LineStyle.Pattern = LinePattern.Solid; // Step-style will be achieved by data
 
         PerformanceTrendsPlot.Plot.ShowLegend(Alignment.UpperLeft);
         PerformanceTrendsPlot.Plot.Legend.BackgroundColor = Color.FromHex("#CC000000");
@@ -155,11 +138,8 @@ public partial class TelemetryWindow : Window
     private void UpdateCharts(TelemetrySnapshot snapshot)
     {
         // Add new data points to streamers
-        _pressurePlot?.Add(snapshot.TirePressureAvg);
-        _tempPlot?.Add(snapshot.TireTempAvg);
-        _rpmPlot?.Add(snapshot.RPM / 10.0); // Scale down for better visualization
-        _speedPlot?.Add(snapshot.SpeedKmh);
-        _gearPlot?.Add(snapshot.Gear * 20.0); // Scale up for better visualization
+        _rpmPlot?.Add(snapshot.RPM);
+        _gearPlot?.Add(snapshot.Gear);
 
         // Refresh charts
         TireTrendsPlot.Plot.Axes.AutoScale();
@@ -211,12 +191,12 @@ public partial class TelemetryWindow : Window
             // Too low - Red
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 100, 100));
         }
-        else if (pressure >= 26 && pressure < 27)
+        else if (pressure >= 23 && pressure < 25)
         {
             // Low - Yellow
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 255, 100));
         }
-        else if (pressure >= 27 && pressure <= 29)
+        else if (pressure >= 26 && pressure <= 28)
         {
             // Optimal - Green
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(100, 255, 100));

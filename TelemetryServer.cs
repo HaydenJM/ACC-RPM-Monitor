@@ -111,7 +111,7 @@ public class TelemetryServer : IDisposable
     {
         if (tireData == null)
         {
-            Console.WriteLine("[TELEMETRY] Update called but tireData is null");
+            ShowNoData();
             return;
         }
 
@@ -145,6 +145,14 @@ public class TelemetryServer : IDisposable
 
         // Update WPF window
         _telemetryWindow?.UpdateTelemetry(snapshot);
+    }
+
+    /// <summary>
+    /// Shows "No data" state in the telemetry window
+    /// </summary>
+    public void ShowNoData()
+    {
+        _telemetryWindow?.ShowNoData();
     }
 
     private void ListenForRequests()
