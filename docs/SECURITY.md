@@ -23,7 +23,7 @@
 
   **Do not** create a public GitHub issue for security vulnerabilities. Instead:
 
-  1. Email your vulnerability report to: security@yourproject.com (or provide your contact method)
+  1. Email your vulnerability report to: haydenmadden.j@gmail.com
   2. Include detailed information about the vulnerability:
      - Description of the vulnerability
      - Steps to reproduce
