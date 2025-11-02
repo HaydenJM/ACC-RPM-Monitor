@@ -633,10 +633,10 @@ public class OptimalShiftConfig
     public DateTime LastUpdated { get; set; }
     public int TotalDataPoints { get; set; }
 
-    // Converts to GearRPMConfig for use in the main application
-    public GearRPMConfig ToGearRPMConfig()
+    // Converts to ShiftPointConfig for use in the main application
+    public ShiftPointConfig ToShiftPointConfig()
     {
-        var config = new GearRPMConfig();
+        var config = new ShiftPointConfig();
         foreach (var kvp in OptimalUpshiftRPM)
         {
             config.SetRPMForGear(kvp.Key, kvp.Value);

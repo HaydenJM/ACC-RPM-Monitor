@@ -4,7 +4,7 @@ namespace ACCRPMMonitor;
 public static class ConfigUI
 {
     // Main menu - entry point for the application
-    public static MainMenuChoice ShowMainMenu(ConfigMan configManager, bool telemetryRunning)
+    public static MainMenuChoice ShowMainMenu(ConfigManager configManager, bool telemetryRunning)
     {
         while (true)
         {
@@ -70,7 +70,7 @@ public static class ConfigUI
     }
 
     // Main vehicle selection menu
-    public static void ShowVehicleSelectionMenu(ConfigMan configManager)
+    public static void ShowVehicleSelectionMenu(ConfigManager configManager)
     {
         while (true)
         {
@@ -141,7 +141,7 @@ public static class ConfigUI
                     if (createResponse == 'Y' || createResponse == 'y')
                     {
                         configManager.SetVehicle(detectedVehicle);
-                        var config = GearRPMConfig.CreateDefault();
+                        var config = ShiftPointConfig.CreateDefault();
                         configManager.SaveConfig(config);
                         Console.WriteLine($"\nCreated new vehicle configuration: {detectedVehicle}");
                         Thread.Sleep(1500);
@@ -178,7 +178,7 @@ public static class ConfigUI
     }
 
     // Configuration mode selection menu
-    public static void ShowModeSelectionMenu(ConfigMan configManager)
+    public static void ShowModeSelectionMenu(ConfigManager configManager)
     {
         while (true)
         {
@@ -240,7 +240,7 @@ public static class ConfigUI
     }
 
     // Creates a new vehicle config
-    private static void CreateNewVehicle(ConfigMan configManager)
+    private static void CreateNewVehicle(ConfigManager configManager)
     {
         Console.Write("\nEnter vehicle name: ");
         string? vehicleName = Console.ReadLine()?.Trim();
@@ -266,7 +266,7 @@ public static class ConfigUI
         }
 
         configManager.SetVehicle(vehicleName);
-        var config = GearRPMConfig.CreateDefault();
+        var config = ShiftPointConfig.CreateDefault();
         configManager.SaveConfig(config);
         Console.WriteLine($"\nCreated new vehicle configuration: {vehicleName}");
         Thread.Sleep(1500);
@@ -405,7 +405,7 @@ public static class ConfigUI
     }
 
     // Deletes a vehicle config
-    private static void DeleteVehicle(ConfigMan configManager, List<string> vehicles)
+    private static void DeleteVehicle(ConfigManager configManager, List<string> vehicles)
     {
         Console.Write("\nEnter vehicle number to delete (or press Enter to cancel): ");
         string? input = Console.ReadLine();
@@ -443,7 +443,7 @@ public static class ConfigUI
     }
 
     // Main config menu - lets you edit RPM thresholds for each gear
-    public static void ShowConfigMenu(GearRPMConfig config, ConfigMan configManager)
+    public static void ShowConfigMenu(ShiftPointConfig config, ConfigManager configManager)
     {
         // Auto mode configs shouldn't be edited manually
         if (configManager.CurrentMode == ConfigMode.Auto)
@@ -504,7 +504,7 @@ public static class ConfigUI
     }
 
     // Edits a single gear's RPM threshold
-    private static void EditGearThreshold(GearRPMConfig config, int gear)
+    private static void EditGearThreshold(ShiftPointConfig config, int gear)
     {
         string nextGear = gear < 8 ? $"Gear {gear + 1}" : "Max Gear";
         int currentRPM = config.GetRPMForGear(gear);

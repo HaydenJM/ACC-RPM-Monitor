@@ -50,7 +50,7 @@ if (vehicleDetector.Connect())
 }
 
 // Initialize config manager with detected vehicle and track
-var configManager = new ConfigMan(
+var configManager = new ConfigManager(
     vehicleName: detectedVehicle ?? "default",
     trackName: detectedTrack ?? "default"
 );
@@ -87,7 +87,7 @@ if (!string.IsNullOrEmpty(detectedVehicle))
             {
                 Console.WriteLine($"\nCreating configuration for '{detectedVehicle}'...");
 
-                var defaultConfig = GearRPMConfig.CreateDefault();
+                var defaultConfig = ShiftPointConfig.CreateDefault();
                 configManager.SaveConfig(defaultConfig);
 
                 Console.WriteLine("Configuration created successfully!");
@@ -111,7 +111,7 @@ if (!string.IsNullOrEmpty(detectedVehicle))
 // If no vehicles exist, create a default one
 if (configManager.GetAvailableVehicles().Count == 0)
 {
-    var defaultConfig = GearRPMConfig.CreateDefault();
+    var defaultConfig = ShiftPointConfig.CreateDefault();
     configManager.SaveConfig(defaultConfig);
 }
 
@@ -125,7 +125,7 @@ while (!exitApp)
     switch (menuChoice)
     {
         case MainMenuChoice.CreateAutoConfig:
-            AutoConfigFlow.Run(configManager);
+            AutoConfigurationFlow.Run(configManager);
             break;
 
         case MainMenuChoice.CreateManualConfig:
@@ -226,7 +226,7 @@ static void OpenConfigFolder()
 }
 
 // Monitor mode - the actual RPM monitoring
-static void RunMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer)
+static void RunMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer)
 {
     // Check if user wants adaptive mode
     Console.Clear();
@@ -260,20 +260,20 @@ static void RunMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryS
 }
 
 // Standard monitor mode with fixed shift points
-static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
+static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
 {
     // Initialize dynamic audio engine
-    using var audioEngine = new DynAudioEng();
+    using var audioEngine = new AudioEngine();
 
     // Apply audio profile from command-line args if specified
     if (cmdArgs != null)
     {
-        var audioProfile = cmdArgs.EnduranceSound ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        var audioProfile = cmdArgs.EnduranceSound ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
         audioEngine.SetAudioProfile(audioProfile);
     }
 
     // Initialize ACC shared memory
-    using var accMemory = new ACCSharedMemorySimple();
+    using var accMemory = new SharedMemoryReader();
 
     // Start telemetry server if provided
     if (telemetryServer != null && !telemetryServer.IsRunning)
@@ -580,13 +580,13 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config, Te
 }
 
 // Adaptive monitor mode - continuously learns and updates shift points
-static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
+static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
 {
     // Initialize dynamic audio engine
-    using var audioEngine = new DynAudioEng();
+    using var audioEngine = new AudioEngine();
 
     // Initialize ACC shared memory
-    using var accMemory = new ACCSharedMemorySimple();
+    using var accMemory = new SharedMemoryReader();
 
     // Start telemetry server if provided
     if (telemetryServer != null && !telemetryServer.IsRunning)
@@ -624,10 +624,10 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, Te
     Console.WriteLine("Press ESC to exit | Press F2 to save learned config\n");
 
     // Audio profile selection (skip if provided via command-line)
-    DynAudioEng.AudioProfile audioProfile;
+    AudioEngine.AudioProfile audioProfile;
     if (cmdArgs != null)
     {
-        audioProfile = cmdArgs.EnduranceSound ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioProfile = cmdArgs.EnduranceSound ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
         audioEngine.SetAudioProfile(audioProfile);
     }
     else
@@ -637,7 +637,7 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, Te
         Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
         Console.Write("Choice: ");
         var profileChoice = Console.ReadLine();
-        audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioProfile = profileChoice == "2" ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
         audioEngine.SetAudioProfile(audioProfile);
     }
     // Use default audio mode (standard beeping) for adaptive mode
@@ -691,7 +691,7 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, Te
                 var optimalConfig = shiftAnalyzer.GenerateOptimalConfig();
                 if (optimalConfig != null)
                 {
-                    var adaptiveConfig = GearRPMConfig.FromOptimalConfig(optimalConfig);
+                    var adaptiveConfig = ShiftPointConfig.FromOptimalConfig(optimalConfig);
                     configManager.SaveAutoConfig(adaptiveConfig);
                     Console.SetCursorPosition(0, 15);
                     Console.WriteLine("Learned configuration saved!                                            ");
@@ -991,7 +991,7 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, Te
         var optimalConfig = shiftAnalyzer.GenerateOptimalConfig();
         if (optimalConfig != null)
         {
-            var adaptiveConfig = GearRPMConfig.FromOptimalConfig(optimalConfig);
+            var adaptiveConfig = ShiftPointConfig.FromOptimalConfig(optimalConfig);
             configManager.SaveAutoConfig(adaptiveConfig);
             Console.WriteLine("\n\nConfiguration saved successfully!");
 
@@ -1000,7 +1000,7 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, Te
             {
                 Console.WriteLine("Generating power curve graph...");
                 string vehicleDir = Path.Combine("reports", configManager.CurrentVehicleName);
-                string graphPath = PwrCrvGraphGen.GenerateGraph(adaptiveConfig, configManager.CurrentVehicleName,
+                string graphPath = PowerCurveGraph.GenerateGraph(adaptiveConfig, configManager.CurrentVehicleName,
                                                                vehicleDir, null);
                 Console.WriteLine($"Power curve graph saved to:");
                 Console.WriteLine($"  {graphPath}");
@@ -1015,13 +1015,13 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, Te
 }
 
 // Performance Learning monitor mode - AI-driven shift optimization based on lap times
-static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
+static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
 {
     // Initialize all required engines
-    using var audioEngine = new DynAudioEng();
-    audioEngine.SetMode(DynAudioEng.AudioMode.PerformanceLearning); // Use pitch-based guidance
+    using var audioEngine = new AudioEngine();
+    audioEngine.SetMode(AudioEngine.AudioMode.PerformanceLearning); // Use pitch-based guidance
 
-    using var accMemory = new ACCSharedMemorySimple();
+    using var accMemory = new SharedMemoryReader();
 
     // Start telemetry server if provided
     if (telemetryServer != null && !telemetryServer.IsRunning)
@@ -1077,15 +1077,15 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
 
     if (feedbackModeChoice == "2")
     {
-        audioEngine.SetMode(DynAudioEng.AudioMode.FeedbackOptimization);
+        audioEngine.SetMode(AudioEngine.AudioMode.FeedbackOptimization);
     }
     Console.WriteLine();
 
     // Audio profile selection (skip if provided via command-line)
-    DynAudioEng.AudioProfile audioProfile;
+    AudioEngine.AudioProfile audioProfile;
     if (cmdArgs != null)
     {
-        audioProfile = cmdArgs.EnduranceSound ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioProfile = cmdArgs.EnduranceSound ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
         audioEngine.SetAudioProfile(audioProfile);
     }
     else
@@ -1095,7 +1095,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
         Console.Write("Choice: ");
         var profileChoice = Console.ReadLine();
-        audioProfile = profileChoice == "2" ? DynAudioEng.AudioProfile.Endurance : DynAudioEng.AudioProfile.Normal;
+        audioProfile = profileChoice == "2" ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
         audioEngine.SetAudioProfile(audioProfile);
     }
     Console.WriteLine();
@@ -1182,11 +1182,11 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
                 {
                     try
                     {
-                        var userShifts = PwrCrvGraphGen.ExtractUserShiftPoints(shiftReport);
+                        var userShifts = PowerCurveGraph.ExtractUserShiftPoints(shiftReport);
                         if (userShifts.Count > 0)
                         {
                             string reportsDir = reportGenerator.GetReportsPath();
-                            string graphPath = PwrCrvGraphGen.GenerateGraph(config, configManager.CurrentVehicleName,
+                            string graphPath = PowerCurveGraph.GenerateGraph(config, configManager.CurrentVehicleName,
                                                                            Path.Combine(reportsDir, configManager.CurrentVehicleName),
                                                                            userShifts);
                             Console.SetCursorPosition(0, 21);
@@ -1253,7 +1253,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         }
 
         readFailCount = 0;
-        var (currentGear, currentRPM, throttle, speed) = telemetryData.Value;
+        (int currentGear, int currentRPM, float throttle, float speed) = telemetryData.Value;
 
         // Update telemetry server if enabled
         if (telemetryServer != null)
@@ -1512,12 +1512,12 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         {
             try
             {
-                var userShifts = PwrCrvGraphGen.ExtractUserShiftPoints(shiftReport);
+                var userShifts = PowerCurveGraph.ExtractUserShiftPoints(shiftReport);
                 if (userShifts.Count > 0)
                 {
                     Console.WriteLine("Updating power curve graph with your actual shift points...");
                     string reportsDir = reportGenerator.GetReportsPath();
-                    string graphPath = PwrCrvGraphGen.GenerateGraph(config, configManager.CurrentVehicleName,
+                    string graphPath = PowerCurveGraph.GenerateGraph(config, configManager.CurrentVehicleName,
                                                                    Path.Combine(reportsDir, configManager.CurrentVehicleName),
                                                                    userShifts);
                     Console.WriteLine($"Updated graph saved to:");
@@ -1594,7 +1594,7 @@ static TelemetryServer? ToggleTelemetryServer(TelemetryServer? currentServer)
         Console.WriteLine("Opening telemetry overlay window...");
 
         var server = new TelemetryServer();
-        var accMemory = new ACCSharedMemorySimple();
+        var accMemory = new SharedMemoryReader();
 
         if (server.Start(accMemory))
         {

@@ -16,7 +16,7 @@ public class TelemetryServer : IDisposable
     private HttpListener? _listener;
     private bool _isRunning;
     private Thread? _serverThread;
-    private ACCSharedMemorySimple? _accMemory;
+    private SharedMemoryReader? _accMemory;
     private TelemetrySnapshot? _latestSnapshot;
     private readonly object _snapshotLock = new object();
     private TelemetryWindow? _telemetryWindow;
@@ -30,7 +30,7 @@ public class TelemetryServer : IDisposable
     /// <summary>
     /// Starts the telemetry display (WPF window and optional HTTP server)
     /// </summary>
-    public bool Start(ACCSharedMemorySimple accMemory)
+    public bool Start(SharedMemoryReader accMemory)
     {
         if (_isRunning)
         {

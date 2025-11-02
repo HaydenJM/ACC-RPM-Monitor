@@ -10,9 +10,9 @@ namespace ACCRPMMonitor;
 public class ReportGen
 {
     private readonly string _baseDataPath;
-    private readonly ConfigMan _configManager;
+    private readonly ConfigManager _configManager;
 
-    public ReportGen(ConfigMan configManager)
+    public ReportGen(ConfigManager configManager)
     {
         _configManager = configManager;
         // Use ./data directory next to application
