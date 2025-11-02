@@ -12,7 +12,7 @@ namespace ACCRPMMonitor;
 /// </summary>
 public partial class TelemetryWindow : Window
 {
-    private const int MaxDataPoints = 60; // Keep last 60 data points (1 minute at 1Hz)
+    private const int MaxDataPoints = 300; // Keep last 300 data points (5 minutes at 1Hz)
 
     // ScottPlot data streamers for live updates
     private DataStreamer? _rpmPlot;

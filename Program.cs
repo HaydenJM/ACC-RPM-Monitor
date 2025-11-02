@@ -1043,7 +1043,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
     var shiftAnalyzer = new OptimalShift(); // For physics-based analysis
     var shiftPatternAnalyzer = new PatternShift(); // For shift detection
     var learningEngine = new PerformanceEng(shiftPatternAnalyzer, shiftAnalyzer);
-    var reportGenerator = new PatternShiftReport(configManager);
+    var reportGenerator = new ReportGen(configManager);
 
     // Initialize gear recommendation engine if available
     GearRecommendationEngine? gearRecommendation = null;
@@ -1172,7 +1172,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
                 // Generate and save performance report
                 var shiftReport = shiftPatternAnalyzer.GeneratePerformanceReport();
                 var learningReport = learningEngine.GenerateLearningReport();
-                string reportPath = reportGenerator.SaveShiftPatternReport(shiftReport, learningReport, configManager.CurrentVehicleName);
+                string reportPath = reportGenerator.SavePerformanceReport(shiftReport, learningReport, configManager.CurrentVehicleName);
 
                 Console.SetCursorPosition(0, 20);
                 Console.WriteLine($"✓ Report saved to: {Path.GetFileName(reportPath)}                           ");
@@ -1498,7 +1498,7 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
         Console.WriteLine("Generating performance analysis report...");
         var shiftReport = shiftPatternAnalyzer.GeneratePerformanceReport();
         var learningReport = learningEngine.GenerateLearningReport();
-        string reportPath = reportGenerator.SaveShiftPatternReport(shiftReport, learningReport, configManager.CurrentVehicleName);
+        string reportPath = reportGenerator.SavePerformanceReport(shiftReport, learningReport, configManager.CurrentVehicleName);
 
         Console.WriteLine();
         Console.WriteLine(reportGenerator.GenerateConsoleSummary(learningReport));

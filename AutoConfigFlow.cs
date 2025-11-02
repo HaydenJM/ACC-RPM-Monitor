@@ -276,10 +276,9 @@ public static class AutoConfigFlow
         // Generate detailed report
         var report = analyzer.GenerateDetailedReport(configManager.CurrentVehicleName, maxGear);
 
-        // Save reports to vehicle-specific directory
-        string reportsDir = configManager.GetVehicleDataDirectory();
-        report.SaveToFile(reportsDir);
-        report.SaveHumanReadableReport(reportsDir);
+        // Save reports using ReportGen
+        var reportGen = new ReportGen(configManager);
+        reportGen.SaveAutoConfigReport(report);
 
         // Display summary
         Console.WriteLine(report.SessionSummary);
@@ -315,10 +314,11 @@ public static class AutoConfigFlow
                 {
                     Console.WriteLine();
                     Console.WriteLine("Generating power curve graph...");
+                    string vehicleDir = configManager.GetVehicleDataDirectory();
                     string graphPath = PwrCrvGraphGen.GenerateGraph(
                         autoConfig,
                         configManager.CurrentVehicleName,
-                        reportsDir
+                        vehicleDir
                     );
                     Console.WriteLine($"Power curve graph saved to: {graphPath}");
                 }
@@ -338,7 +338,8 @@ public static class AutoConfigFlow
                 Console.WriteLine($"  • {rec}");
             }
             Console.WriteLine();
-            Console.WriteLine($"Detailed reports saved to: {reportsDir}");
+            string vehicleDir = configManager.GetVehicleDataDirectory();
+            Console.WriteLine($"Detailed reports saved to: {vehicleDir}");
             Console.WriteLine();
 
             return false;
