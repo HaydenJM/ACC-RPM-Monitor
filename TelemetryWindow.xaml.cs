@@ -1,6 +1,9 @@
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media;
+using WpfColor = System.Windows.Media.Color;
+using WpfColors = System.Windows.Media.Colors;
+using ScottPlot;
+using ScottPlot.Plottables;
 
 namespace ACCRPMMonitor;
 
@@ -9,9 +12,78 @@ namespace ACCRPMMonitor;
 /// </summary>
 public partial class TelemetryWindow : Window
 {
+    private const int MaxDataPoints = 60; // Keep last 60 data points (1 minute at 1Hz)
+
+    // ScottPlot data streamers for live updates
+    private DataStreamer? _pressurePlot;
+    private DataStreamer? _tempPlot;
+    private DataStreamer? _rpmPlot;
+    private DataStreamer? _speedPlot;
+    private DataStreamer? _gearPlot;
+
     public TelemetryWindow()
     {
         InitializeComponent();
+        InitializeCharts();
+    }
+
+    private void InitializeCharts()
+    {
+        // Configure tire trends chart
+        TireTrendsPlot.Plot.Clear();
+        TireTrendsPlot.Plot.Axes.Left.Label.Text = "PSI / °C";
+        TireTrendsPlot.Plot.Axes.Bottom.Label.Text = "Time (s)";
+        TireTrendsPlot.Plot.FigureBackground.Color = Colors.Transparent;
+        TireTrendsPlot.Plot.DataBackground.Color = Color.FromHex("#1A1A1A");
+        TireTrendsPlot.Plot.Axes.Color(Color.FromHex("#AAAAAA"));
+        TireTrendsPlot.Plot.Grid.MajorLineColor = Color.FromHex("#333333");
+
+        _pressurePlot = TireTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
+        _pressurePlot.Color = Color.FromHex("#00FF00");
+        _pressurePlot.LineWidth = 2;
+        _pressurePlot.LegendText = "Pressure (PSI)";
+
+        _tempPlot = TireTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
+        _tempPlot.Color = Color.FromHex("#FF8800");
+        _tempPlot.LineWidth = 2;
+        _tempPlot.LegendText = "Temp (°C)";
+
+        TireTrendsPlot.Plot.ShowLegend(Alignment.UpperLeft);
+        TireTrendsPlot.Plot.Legend.BackgroundColor = Color.FromHex("#CC000000");
+        TireTrendsPlot.Plot.Legend.FontColor = Colors.White;
+        TireTrendsPlot.Plot.Legend.OutlineColor = Colors.Transparent;
+
+        // Configure performance trends chart
+        PerformanceTrendsPlot.Plot.Clear();
+        PerformanceTrendsPlot.Plot.Axes.Left.Label.Text = "RPM / Speed / Gear";
+        PerformanceTrendsPlot.Plot.Axes.Bottom.Label.Text = "Time (s)";
+        PerformanceTrendsPlot.Plot.FigureBackground.Color = Colors.Transparent;
+        PerformanceTrendsPlot.Plot.DataBackground.Color = Color.FromHex("#1A1A1A");
+        PerformanceTrendsPlot.Plot.Axes.Color(Color.FromHex("#AAAAAA"));
+        PerformanceTrendsPlot.Plot.Grid.MajorLineColor = Color.FromHex("#333333");
+
+        _rpmPlot = PerformanceTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
+        _rpmPlot.Color = Color.FromHex("#FF0000");
+        _rpmPlot.LineWidth = 2;
+        _rpmPlot.LegendText = "RPM / 10";
+
+        _speedPlot = PerformanceTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
+        _speedPlot.Color = Color.FromHex("#00FFFF");
+        _speedPlot.LineWidth = 2;
+        _speedPlot.LegendText = "Speed (km/h)";
+
+        _gearPlot = PerformanceTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
+        _gearPlot.Color = Color.FromHex("#FFFF00");
+        _gearPlot.LineWidth = 2;
+        _gearPlot.LegendText = "Gear * 20";
+
+        PerformanceTrendsPlot.Plot.ShowLegend(Alignment.UpperLeft);
+        PerformanceTrendsPlot.Plot.Legend.BackgroundColor = Color.FromHex("#CC000000");
+        PerformanceTrendsPlot.Plot.Legend.FontColor = Colors.White;
+        PerformanceTrendsPlot.Plot.Legend.OutlineColor = Colors.Transparent;
+
+        TireTrendsPlot.Refresh();
+        PerformanceTrendsPlot.Refresh();
     }
 
     /// <summary>
@@ -75,6 +147,26 @@ public partial class TelemetryWindow : Window
         UpdatePressureColor(PressureFRText, snapshot.TirePressureFR);
         UpdatePressureColor(PressureRLText, snapshot.TirePressureRL);
         UpdatePressureColor(PressureRRText, snapshot.TirePressureRR);
+
+        // Update charts
+        UpdateCharts(snapshot);
+    }
+
+    private void UpdateCharts(TelemetrySnapshot snapshot)
+    {
+        // Add new data points to streamers
+        _pressurePlot?.Add(snapshot.TirePressureAvg);
+        _tempPlot?.Add(snapshot.TireTempAvg);
+        _rpmPlot?.Add(snapshot.RPM / 10.0); // Scale down for better visualization
+        _speedPlot?.Add(snapshot.SpeedKmh);
+        _gearPlot?.Add(snapshot.Gear * 20.0); // Scale up for better visualization
+
+        // Refresh charts
+        TireTrendsPlot.Plot.Axes.AutoScale();
+        TireTrendsPlot.Refresh();
+
+        PerformanceTrendsPlot.Plot.Axes.AutoScale();
+        PerformanceTrendsPlot.Refresh();
     }
 
     /// <summary>
@@ -85,27 +177,27 @@ public partial class TelemetryWindow : Window
         if (temp < 70)
         {
             // Too cold - Blue
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(100, 150, 255));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(100, 150, 255));
         }
         else if (temp >= 70 && temp < 80)
         {
             // Getting warm - Cyan
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(100, 200, 255));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(100, 200, 255));
         }
         else if (temp >= 80 && temp <= 95)
         {
             // Optimal - Green
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(100, 255, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(100, 255, 100));
         }
         else if (temp > 95 && temp <= 105)
         {
             // Getting hot - Yellow
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 255, 100));
         }
         else
         {
             // Too hot - Red
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(255, 100, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 100, 100));
         }
     }
 
@@ -117,27 +209,27 @@ public partial class TelemetryWindow : Window
         if (pressure < 26)
         {
             // Too low - Red
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(255, 100, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 100, 100));
         }
         else if (pressure >= 26 && pressure < 27)
         {
             // Low - Yellow
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 255, 100));
         }
         else if (pressure >= 27 && pressure <= 29)
         {
             // Optimal - Green
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(100, 255, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(100, 255, 100));
         }
         else if (pressure > 29 && pressure <= 30)
         {
             // High - Yellow
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 255, 100));
         }
         else
         {
             // Too high - Red
-            textBlock.Foreground = new SolidColorBrush(Color.FromRgb(255, 100, 100));
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 100, 100));
         }
     }
 
