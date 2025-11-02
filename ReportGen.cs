@@ -6,6 +6,7 @@ namespace ACCRPMMonitor;
 /// <summary>
 /// Unified report generation system for all data collection and performance analysis reports.
 /// Handles both auto-configuration data reports and performance learning shift pattern reports.
+/// v3.7.1: Consolidated from separate AutoConfigReport and PerformanceReport classes.
 /// </summary>
 public class ReportGen
 {

@@ -2,7 +2,12 @@ using NAudio.Wave;
 
 namespace ACCRPMMonitor;
 
-// Audio engine with mode-specific feedback strategies
+/// <summary>
+/// Audio engine with mode-specific feedback strategies for shift point guidance.
+/// Supports three modes: Standard (progressive beeping), Performance Learning (pitch guidance),
+/// and Feedback Optimization (post-shift evaluation).
+/// v3.7.1: Enhanced with endurance audio profiles and improved RPM rate tracking.
+/// </summary>
 public class AudioEngine : IDisposable
 {
     private readonly WaveOutEvent _waveOut;
