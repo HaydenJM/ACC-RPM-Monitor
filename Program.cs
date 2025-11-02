@@ -321,11 +321,21 @@ static void RunStandardMonitor(ConfigMan configManager, GearRPMConfig config, Te
 
     while (true)
     {
-        // Check for vehicle change
+        // Check for vehicle or track change
         string? detectedVehicle = vehicleDetector.GetCarModel();
+        string? detectedTrack = vehicleDetector.GetTrackName();
+
         if (detectedVehicle != null && detectedVehicle != currentVehicleName)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
+            Console.WriteLine("Returning to main menu...");
+            Thread.Sleep(2000);
+            break;
+        }
+
+        if (detectedTrack != null && detectedTrack != configManager.CurrentTrackName)
+        {
+            Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
             Thread.Sleep(2000);
             break;
@@ -641,11 +651,21 @@ static void RunAdaptiveMonitor(ConfigMan configManager, GearRPMConfig config, Te
 
     while (true)
     {
-        // Check for vehicle change
+        // Check for vehicle or track change
         string? detectedVehicle = vehicleDetector.GetCarModel();
+        string? detectedTrack = vehicleDetector.GetTrackName();
+
         if (detectedVehicle != null && detectedVehicle != currentVehicleName)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
+            Console.WriteLine("Returning to main menu...");
+            Thread.Sleep(2000);
+            break;
+        }
+
+        if (detectedTrack != null && detectedTrack != configManager.CurrentTrackName)
+        {
+            Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
             Thread.Sleep(2000);
             break;
@@ -1077,11 +1097,21 @@ static void RunPerformanceLearningMonitor(ConfigMan configManager, GearRPMConfig
 
     while (true)
     {
-        // Check for vehicle change
+        // Check for vehicle or track change
         string? detectedVehicle = vehicleDetector.GetCarModel();
+        string? detectedTrack = vehicleDetector.GetTrackName();
+
         if (detectedVehicle != null && detectedVehicle != currentVehicleName)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
+            Console.WriteLine("Returning to main menu...");
+            Thread.Sleep(2000);
+            break;
+        }
+
+        if (detectedTrack != null && detectedTrack != configManager.CurrentTrackName)
+        {
+            Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
             Thread.Sleep(2000);
             break;
