@@ -18,7 +18,8 @@
             CornerRadius="10"
             Padding="15"
             BorderBrush="#40FFFFFF"
-            BorderThickness="1">
+            BorderThickness="1"
+            MouseLeftButtonDown="Border_MouseLeftButtonDown">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>

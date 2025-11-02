@@ -1505,56 +1505,43 @@ static string GetStatusName(int status)
     };
 }
 
-// Toggle telemetry server on/off
+// Toggle telemetry window on/off
 static TelemetryServer? ToggleTelemetryServer(TelemetryServer? currentServer)
 {
     if (currentServer != null && currentServer.IsRunning)
     {
-        // Stop the server
+        // Close the window
         Console.Clear();
-        Console.WriteLine("=== Stop Telemetry Server ===\n");
-        Console.WriteLine("Stopping telemetry server...");
+        Console.WriteLine("=== Close Telemetry Window ===\n");
+        Console.WriteLine("Closing telemetry window...");
         currentServer.Stop();
         currentServer.Dispose();
-        Console.WriteLine("✓ Telemetry server stopped");
-        Console.WriteLine("✓ Streamlit dashboard closed");
+        Console.WriteLine("✓ Telemetry window closed");
         Console.WriteLine("\nPress any key to return to main menu...");
         Console.ReadKey();
         return null;
     }
     else
     {
-        // Start the server
+        // Open the window
         Console.Clear();
-        Console.WriteLine("=== Start Telemetry Server ===\n");
-        Console.WriteLine("Starting telemetry server...");
+        Console.WriteLine("=== Open Telemetry Window ===\n");
+        Console.WriteLine("Opening telemetry overlay window...");
 
         var server = new TelemetryServer();
-        var accMemory = new ACCSharedMemorySimple();
 
-        if (server.Start(accMemory))
-        {
-            Console.WriteLine($"✓ Telemetry server started on http://localhost:{server.Port}/telemetry");
-            Console.WriteLine($"✓ Streamlit dashboard launching at http://localhost:8501");
-            Console.WriteLine();
-            Console.WriteLine("The telemetry server is now running in the background.");
-            Console.WriteLine("You can now:");
-            Console.WriteLine("  • Go to option [3] to start monitoring (data will stream automatically)");
-            Console.WriteLine("  • View the dashboard in your browser at http://localhost:8501");
-            Console.WriteLine("  • Return here to stop the server (option [4])");
-            Console.WriteLine();
-            Console.WriteLine("Note: The dashboard will update when you start monitoring and ACC is running.");
-            Console.WriteLine("\nPress any key to return to main menu...");
-            Console.ReadKey();
-            return server;
-        }
-        else
-        {
-            Console.WriteLine("✗ Failed to start telemetry server");
-            Console.WriteLine("\nPress any key to return to main menu...");
-            Console.ReadKey();
-            return null;
-        }
+        Console.WriteLine("✓ Telemetry window opened");
+        Console.WriteLine();
+        Console.WriteLine("The telemetry overlay is now running.");
+        Console.WriteLine("• Window is transparent and overlays on top of ACC");
+        Console.WriteLine("• Click and drag to reposition the window");
+        Console.WriteLine("• Data will update automatically when monitoring starts");
+        Console.WriteLine("• Close from this menu (option [4]) when done");
+        Console.WriteLine();
+        Console.WriteLine("Note: The window will display live data when you start monitoring (option [3]).");
+        Console.WriteLine("\nPress any key to return to main menu...");
+        Console.ReadKey();
+        return server;
     }
 }
 

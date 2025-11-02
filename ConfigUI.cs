@@ -17,7 +17,7 @@ public static class ConfigUI
             Console.WriteLine($"Current Track:   {configManager.CurrentTrackName}");
             if (telemetryRunning)
             {
-                Console.WriteLine($"Telemetry:       ✓ RUNNING (Dashboard: http://localhost:8501)");
+                Console.WriteLine($"Telemetry:       ✓ WINDOW OPEN");
             }
             Console.WriteLine();
             Console.WriteLine("Main Menu:");
@@ -34,13 +34,13 @@ public static class ConfigUI
 
             if (telemetryRunning)
             {
-                Console.WriteLine("  [4] Stop Telemetry Server");
-                Console.WriteLine("      Stop the telemetry server and close the dashboard");
+                Console.WriteLine("  [4] Close Telemetry Window");
+                Console.WriteLine("      Close the telemetry overlay window");
             }
             else
             {
-                Console.WriteLine("  [4] Start Telemetry Server");
-                Console.WriteLine("      Launch telemetry server for real-time tire data visualization");
+                Console.WriteLine("  [4] Open Telemetry Window");
+                Console.WriteLine("      Launch telemetry overlay window for real-time tire data");
             }
             Console.WriteLine();
             Console.WriteLine("  [5] Change Vehicle");

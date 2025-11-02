@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace ACCRPMMonitor;
@@ -11,6 +12,17 @@ public partial class TelemetryWindow : Window
     public TelemetryWindow()
     {
         InitializeComponent();
+    }
+
+    /// <summary>
+    /// Allows dragging the window by clicking and dragging anywhere on the border
+    /// </summary>
+    private void Border_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState == MouseButtonState.Pressed)
+        {
+            this.DragMove();
+        }
     }
 
     /// <summary>
