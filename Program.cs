@@ -1529,19 +1529,30 @@ static TelemetryServer? ToggleTelemetryServer(TelemetryServer? currentServer)
         Console.WriteLine("Opening telemetry overlay window...");
 
         var server = new TelemetryServer();
+        var accMemory = new ACCSharedMemorySimple();
 
-        Console.WriteLine("✓ Telemetry window opened");
-        Console.WriteLine();
-        Console.WriteLine("The telemetry overlay is now running.");
-        Console.WriteLine("• Window is transparent and overlays on top of ACC");
-        Console.WriteLine("• Click and drag to reposition the window");
-        Console.WriteLine("• Data will update automatically when monitoring starts");
-        Console.WriteLine("• Close from this menu (option [4]) when done");
-        Console.WriteLine();
-        Console.WriteLine("Note: The window will display live data when you start monitoring (option [3]).");
-        Console.WriteLine("\nPress any key to return to main menu...");
-        Console.ReadKey();
-        return server;
+        if (server.Start(accMemory))
+        {
+            Console.WriteLine("✓ Telemetry window opened");
+            Console.WriteLine();
+            Console.WriteLine("The telemetry overlay is now running.");
+            Console.WriteLine("• Window is transparent and overlays on top of ACC");
+            Console.WriteLine("• Click and drag to reposition the window");
+            Console.WriteLine("• Data will update automatically when monitoring starts");
+            Console.WriteLine("• Close from this menu (option [4]) when done");
+            Console.WriteLine();
+            Console.WriteLine("Note: The window will display live data when you start monitoring (option [3]).");
+            Console.WriteLine("\nPress any key to return to main menu...");
+            Console.ReadKey();
+            return server;
+        }
+        else
+        {
+            Console.WriteLine("✗ Failed to open telemetry window");
+            Console.WriteLine("\nPress any key to return to main menu...");
+            Console.ReadKey();
+            return null;
+        }
     }
 }
 
