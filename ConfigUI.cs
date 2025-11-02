@@ -85,7 +85,7 @@ public static class ConfigUI
                 detectedVehicle = vehicleDetector.GetCarModel();
                 if (!string.IsNullOrEmpty(detectedVehicle))
                 {
-                    Console.WriteLine($"Detected from ACC: {detectedVehicle}");
+                    Console.WriteLine($"Detected vehicle from ACC: {detectedVehicle}");
                     Console.WriteLine();
                 }
             }
@@ -140,10 +140,26 @@ public static class ConfigUI
 
                     if (createResponse == 'Y' || createResponse == 'y')
                     {
-                        configManager.SetVehicle(detectedVehicle);
+                        Console.Write("\nEnter track name: ");
+                        string? trackName = Console.ReadLine()?.Trim();
+
+                        if (string.IsNullOrWhiteSpace(trackName))
+                        {
+                            Console.WriteLine("Invalid track name.");
+                            Thread.Sleep(1500);
+                            continue;
+                        }
+
+                        // Clean up any invalid filename characters
+                        foreach (char c in Path.GetInvalidFileNameChars())
+                        {
+                            trackName = trackName.Replace(c, '_');
+                        }
+
+                        configManager.SetVehicleAndTrack(detectedVehicle, trackName);
                         var config = ShiftPointConfig.CreateDefault();
                         configManager.SaveConfig(config);
-                        Console.WriteLine($"\nCreated new vehicle configuration: {detectedVehicle}");
+                        Console.WriteLine($"\nCreated new configuration: {detectedVehicle} at {trackName}");
                         Thread.Sleep(1500);
                         return;
                     }
@@ -258,17 +274,34 @@ public static class ConfigUI
             vehicleName = vehicleName.Replace(c, '_');
         }
 
-        if (configManager.VehicleExists(vehicleName))
+        Console.Write("Enter track name: ");
+        string? trackName = Console.ReadLine()?.Trim();
+
+        if (string.IsNullOrWhiteSpace(trackName))
         {
-            Console.WriteLine($"Vehicle '{vehicleName}' already exists.");
+            Console.WriteLine("Invalid track name.");
             Thread.Sleep(1500);
             return;
         }
 
-        configManager.SetVehicle(vehicleName);
+        // Clean up any invalid filename characters
+        foreach (char c in Path.GetInvalidFileNameChars())
+        {
+            trackName = trackName.Replace(c, '_');
+        }
+
+        configManager.SetVehicleAndTrack(vehicleName, trackName);
+
+        if (configManager.VehicleExists(vehicleName))
+        {
+            Console.WriteLine($"\nConfiguration for '{vehicleName}' at '{trackName}' already exists.");
+            Thread.Sleep(1500);
+            return;
+        }
+
         var config = ShiftPointConfig.CreateDefault();
         configManager.SaveConfig(config);
-        Console.WriteLine($"\nCreated new vehicle configuration: {vehicleName}");
+        Console.WriteLine($"\nCreated new configuration: {vehicleName} at {trackName}");
         Thread.Sleep(1500);
     }
 

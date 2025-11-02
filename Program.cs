@@ -31,28 +31,24 @@ catch (Exception)
 // Initialize vehicle detector to read car and track info from ACC
 var vehicleDetector = new VehicleDetector();
 
-// Try to detect current vehicle and track from ACC
+// Try to detect current vehicle from ACC
 string? detectedVehicle = null;
-string? detectedTrack = null;
 
-Console.WriteLine("Detecting vehicle and track from ACC...");
+Console.WriteLine("Detecting vehicle from ACC...");
 if (vehicleDetector.Connect())
 {
     detectedVehicle = vehicleDetector.GetCarModel();
-    detectedTrack = vehicleDetector.GetTrackName();
 
     if (!string.IsNullOrEmpty(detectedVehicle))
         Console.WriteLine($"Detected vehicle: {detectedVehicle}");
-    if (!string.IsNullOrEmpty(detectedTrack))
-        Console.WriteLine($"Detected track: {detectedTrack}");
 
     vehicleDetector.Dispose();
 }
 
-// Initialize config manager with detected vehicle and track
+// Initialize config manager with detected vehicle and default track
 var configManager = new ConfigManager(
     vehicleName: detectedVehicle ?? "default",
-    trackName: detectedTrack ?? "default"
+    trackName: "default"
 );
 
 // Initialize telemetry server if requested via command-line
@@ -63,29 +59,35 @@ if (cmdArgs.EnableTelemetry)
     Console.WriteLine("Telemetry window will be displayed");
 }
 
-// Check if detected vehicle/track combo has a config
+// Check if detected vehicle has a config
 if (!string.IsNullOrEmpty(detectedVehicle))
 {
-    if (!string.IsNullOrEmpty(detectedVehicle))
-    {
-        configManager.SetVehicleAndTrack(detectedVehicle, detectedTrack ?? "default");
-    }
+    configManager.SetVehicle(detectedVehicle);
 
-    // Check if detected vehicle exists in available vehicles list
-    if (!string.IsNullOrEmpty(detectedVehicle))
+    var availableVehicles = configManager.GetAvailableVehicles();
+    if (!availableVehicles.Contains(detectedVehicle))
     {
-        var availableVehicles = configManager.GetAvailableVehicles();
-        if (!availableVehicles.Contains(detectedVehicle))
+        Console.WriteLine($"\nDetected vehicle '{detectedVehicle}' has no configuration yet.");
+        Console.WriteLine();
+        Console.Write("Would you like to create a configuration for this vehicle? (Y/N): ");
+
+        var response = Console.ReadLine()?.Trim().ToUpper();
+
+        if (response == "Y" || response == "YES")
         {
-            Console.WriteLine($"\nDetected vehicle '{detectedVehicle}' has no configuration yet.");
-            Console.WriteLine();
-            Console.Write("Would you like to create a configuration for this vehicle? (Y/N): ");
+            Console.Write("Enter track name: ");
+            string? trackName = Console.ReadLine()?.Trim();
 
-            var response = Console.ReadLine()?.Trim().ToUpper();
-
-            if (response == "Y" || response == "YES")
+            if (!string.IsNullOrWhiteSpace(trackName))
             {
-                Console.WriteLine($"\nCreating configuration for '{detectedVehicle}'...");
+                // Clean up any invalid filename characters
+                foreach (char c in Path.GetInvalidFileNameChars())
+                {
+                    trackName = trackName.Replace(c, '_');
+                }
+
+                configManager.SetTrack(trackName);
+                Console.WriteLine($"\nCreating configuration for '{detectedVehicle}' at '{trackName}'...");
 
                 var defaultConfig = ShiftPointConfig.CreateDefault();
                 configManager.SaveConfig(defaultConfig);
@@ -98,12 +100,12 @@ if (!string.IsNullOrEmpty(detectedVehicle))
                 Console.WriteLine("Press any key to continue to main menu...");
                 Console.ReadKey();
             }
-            else
-            {
-                Console.WriteLine("\nContinuing with current vehicle. You can create a configuration later");
-                Console.WriteLine("from the main menu.");
-                Thread.Sleep(2000);
-            }
+        }
+        else
+        {
+            Console.WriteLine("\nContinuing with current vehicle. You can create a configuration later");
+            Console.WriteLine("from the main menu.");
+            Thread.Sleep(2000);
         }
     }
 }
@@ -317,36 +319,24 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
     int lastCompletedLaps = 0;
     bool hasDisplayedLapPressures = false;
 
-    // Track initial vehicle/track to detect changes during session
+    // Track initial vehicle to detect changes during session
     string? initialVehicle = null;
-    string? initialTrack = null;
 
     Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
     while (true)
     {
-        // Check for vehicle or track change
+        // Check for vehicle change
         string? detectedVehicle = vehicleDetector.GetCarModel();
-        string? detectedTrack = vehicleDetector.GetTrackName();
 
-        // Set initial vehicle/track on first detection
+        // Set initial vehicle on first detection
         if (detectedVehicle != null && initialVehicle == null)
             initialVehicle = detectedVehicle;
-        if (detectedTrack != null && initialTrack == null)
-            initialTrack = detectedTrack;
 
-        // Only exit if vehicle/track CHANGES during the session
+        // Only exit if vehicle CHANGES during the session
         if (initialVehicle != null && detectedVehicle != null && detectedVehicle != initialVehicle)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
-            Console.WriteLine("Returning to main menu...");
-            Thread.Sleep(2000);
-            break;
-        }
-
-        if (initialTrack != null && detectedTrack != null && detectedTrack != initialTrack)
-        {
-            Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
             Thread.Sleep(2000);
             break;
@@ -666,36 +656,24 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
     int lastCompletedLaps = 0;
     bool hasDisplayedLapPressures = false;
 
-    // Track initial vehicle/track to detect changes during session
+    // Track initial vehicle to detect changes during session
     string? initialVehicle = null;
-    string? initialTrack = null;
 
     Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
     while (true)
     {
-        // Check for vehicle or track change
+        // Check for vehicle change
         string? detectedVehicle = vehicleDetector.GetCarModel();
-        string? detectedTrack = vehicleDetector.GetTrackName();
 
-        // Set initial vehicle/track on first detection
+        // Set initial vehicle on first detection
         if (detectedVehicle != null && initialVehicle == null)
             initialVehicle = detectedVehicle;
-        if (detectedTrack != null && initialTrack == null)
-            initialTrack = detectedTrack;
 
-        // Only exit if vehicle/track CHANGES during the session
+        // Only exit if vehicle CHANGES during the session
         if (initialVehicle != null && detectedVehicle != null && detectedVehicle != initialVehicle)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
-            Console.WriteLine("Returning to main menu...");
-            Thread.Sleep(2000);
-            break;
-        }
-
-        if (initialTrack != null && detectedTrack != null && detectedTrack != initialTrack)
-        {
-            Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
             Thread.Sleep(2000);
             break;
@@ -1152,9 +1130,8 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     int lastCompletedLaps = 0;
     bool hasDisplayedLapPressures = false;
 
-    // Track initial vehicle/track to detect changes during session
+    // Track initial vehicle to detect changes during session
     string? initialVehicle = null;
-    string? initialTrack = null;
 
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Performance Learning Mode ===");
@@ -1163,28 +1140,17 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
 
     while (true)
     {
-        // Check for vehicle or track change
+        // Check for vehicle change
         string? detectedVehicle = vehicleDetector.GetCarModel();
-        string? detectedTrack = vehicleDetector.GetTrackName();
 
-        // Set initial vehicle/track on first detection
+        // Set initial vehicle on first detection
         if (detectedVehicle != null && initialVehicle == null)
             initialVehicle = detectedVehicle;
-        if (detectedTrack != null && initialTrack == null)
-            initialTrack = detectedTrack;
 
-        // Only exit if vehicle/track CHANGES during the session
+        // Only exit if vehicle CHANGES during the session
         if (initialVehicle != null && detectedVehicle != null && detectedVehicle != initialVehicle)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
-            Console.WriteLine("Returning to main menu...");
-            Thread.Sleep(2000);
-            break;
-        }
-
-        if (initialTrack != null && detectedTrack != null && detectedTrack != initialTrack)
-        {
-            Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
             Thread.Sleep(2000);
             break;
