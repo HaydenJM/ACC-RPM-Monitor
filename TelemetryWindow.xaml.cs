@@ -36,14 +36,14 @@ public partial class TelemetryWindow : Window
         PressureFRText.Text = $"{snapshot.TirePressureFR:F1}";
         PressureRLText.Text = $"{snapshot.TirePressureRL:F1}";
         PressureRRText.Text = $"{snapshot.TirePressureRR:F1}";
-        PressureAvgText.Text = $"{snapshot.TirePressureAvg:F1} PSI";
+        PressureAvgText.Text = $"{snapshot.TirePressureAvg:F1}";
 
         // Update tire temperatures
         TempFLText.Text = $"{snapshot.TireTempFL:F1}";
         TempFRText.Text = $"{snapshot.TireTempFR:F1}";
         TempRLText.Text = $"{snapshot.TireTempRL:F1}";
         TempRRText.Text = $"{snapshot.TireTempRR:F1}";
-        TempAvgText.Text = $"{snapshot.TireTempAvg:F1} °C";
+        TempAvgText.Text = $"{snapshot.TireTempAvg:F1}";
 
         // Color-code tire temperatures (optimal range ~80-90°C)
         UpdateTemperatureColor(TempFLText, snapshot.TireTempFL);
@@ -56,9 +56,6 @@ public partial class TelemetryWindow : Window
         UpdatePressureColor(PressureFRText, snapshot.TirePressureFR);
         UpdatePressureColor(PressureRLText, snapshot.TirePressureRL);
         UpdatePressureColor(PressureRRText, snapshot.TirePressureRR);
-
-        // Update status
-        StatusText.Text = $"Last updated: {snapshot.Timestamp:HH:mm:ss}";
     }
 
     /// <summary>
@@ -136,6 +133,22 @@ public partial class TelemetryWindow : Window
             return;
         }
 
-        StatusText.Text = "Waiting for telemetry data...";
+        // Reset all displays to default values
+        SpeedText.Text = "0";
+        RpmText.Text = "0";
+        GearText.Text = "N";
+        FuelText.Text = "0";
+
+        PressureFLText.Text = "0.0";
+        PressureFRText.Text = "0.0";
+        PressureRLText.Text = "0.0";
+        PressureRRText.Text = "0.0";
+        PressureAvgText.Text = "0.0";
+
+        TempFLText.Text = "0.0";
+        TempFRText.Text = "0.0";
+        TempRLText.Text = "0.0";
+        TempRRText.Text = "0.0";
+        TempAvgText.Text = "0.0";
     }
 }
