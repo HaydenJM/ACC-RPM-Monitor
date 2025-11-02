@@ -299,6 +299,13 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
         gearRecommendation = new GearRecommendationEngine(config.AccelerationCurves, config.GearRatios);
     }
 
+    // Initialize monitoring data collector
+    var dataCollector = new MonitoringDataCollector(
+        configManager.CurrentVehicleName,
+        configManager.CurrentTrackName,
+        "Standard"
+    );
+
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Standard Mode ===");
     Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
@@ -494,6 +501,10 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
 
         // ACC uses gear 2 as first gear, so subtract 1 for display
         int displayGear = currentGear - 1;
+
+        // Update monitoring data collector
+        dataCollector.Update(displayGear, currentRPM, speed, tireData);
+
         int threshold = config.GetRPMForGear(displayGear);
 
         // Update audio with dynamic beeping timing based on RPM rate
@@ -578,6 +589,16 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
     }
 
     audioEngine.Stop();
+
+    // Generate and save monitoring session report
+    Console.Clear();
+    Console.WriteLine("Generating monitoring session report...");
+    var report = dataCollector.GenerateReport();
+    var reportGen = new ReportGen(configManager);
+    string reportPath = reportGen.SaveMonitoringSessionReport(report);
+    Console.WriteLine($"Report saved to: {reportPath}");
+    Console.WriteLine("\nPress any key to continue...");
+    Console.ReadKey();
 }
 
 // Adaptive monitor mode - continuously learns and updates shift points
@@ -613,6 +634,13 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
     {
         gearRecommendation = new GearRecommendationEngine(config.AccelerationCurves, config.GearRatios);
     }
+
+    // Initialize monitoring data collector
+    var dataCollector = new MonitoringDataCollector(
+        configManager.CurrentVehicleName,
+        configManager.CurrentTrackName,
+        "Adaptive"
+    );
 
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Adaptive Mode ===");
@@ -842,6 +870,9 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
         // ACC uses gear 2 as first gear, so subtract 1 for display
         int displayGear = currentGear - 1;
 
+        // Update monitoring data collector
+        dataCollector.Update(displayGear, currentRPM, speed, tireData);
+
         // Continuously collect data for gears 1-6 when at full throttle
         if (displayGear >= 1 && displayGear <= 6)
         {
@@ -984,8 +1015,16 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
 
     audioEngine.Stop();
 
-    // Ask if user wants to save learned configuration
+    // Generate and save monitoring session report
     Console.Clear();
+    Console.WriteLine("Generating monitoring session report...");
+    var monitoringReport = dataCollector.GenerateReport();
+    var monitoringReportGen = new ReportGen(configManager);
+    string monitoringReportPath = monitoringReportGen.SaveMonitoringSessionReport(monitoringReport);
+    Console.WriteLine($"Monitoring report saved to: {monitoringReportPath}");
+    Console.WriteLine();
+
+    // Ask if user wants to save learned configuration
     Console.WriteLine("=== Adaptive Mode Session Ended ===");
     Console.WriteLine();
     Console.WriteLine($"Total data points collected: {shiftAnalyzer.GetDataPointCount()}");
@@ -1064,6 +1103,13 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     {
         gearRecommendation = new GearRecommendationEngine(config.AccelerationCurves, config.GearRatios);
     }
+
+    // Initialize monitoring data collector
+    var dataCollector = new MonitoringDataCollector(
+        configManager.CurrentVehicleName,
+        configManager.CurrentTrackName,
+        "Performance Learning"
+    );
 
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Performance Learning Mode ===");
@@ -1312,6 +1358,9 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
         // Convert gear for display (ACC uses gear 2 as first gear)
         int displayGear = currentGear - 1;
 
+        // Update monitoring data collector
+        dataCollector.Update(displayGear, currentRPM, speed, tireData);
+
         // Detect lap completion BEFORE update
         int completedLapsBeforeUpdate = lastCompletedLaps;
 
@@ -1503,6 +1552,13 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     // End of session - generate final report
     Console.Clear();
     Console.WriteLine("=== Performance Learning Session Ended ===");
+    Console.WriteLine();
+
+    // Generate and save monitoring session report
+    Console.WriteLine("Generating monitoring session report...");
+    var monitoringReport = dataCollector.GenerateReport();
+    string monitoringReportPath = reportGenerator.SaveMonitoringSessionReport(monitoringReport);
+    Console.WriteLine($"Monitoring report saved to: {monitoringReportPath}");
     Console.WriteLine();
 
     if (shiftPatternAnalyzer.GetValidLaps() >= 2)

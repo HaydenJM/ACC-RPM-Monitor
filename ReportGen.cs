@@ -321,5 +321,200 @@ public class ReportGen
 
     #endregion
 
+    #region Monitoring Session Data Reports
+
+    /// <summary>
+    /// Saves a monitoring session telemetry data report.
+    /// Generated automatically when any monitoring mode stops.
+    /// Structure: data/{car}/{track}/monitoring_session_{timestamp}.{txt|json}
+    /// </summary>
+    public string SaveMonitoringSessionReport(MonitoringSessionReport report)
+    {
+        string vehicleTrackDir = _configManager.GetVehicleDataDirectory();
+        Directory.CreateDirectory(vehicleTrackDir);
+
+        string timestamp = report.SessionStart.ToString("yyyyMMdd_HHmmss");
+        string baseFileName = $"monitoring_session_{timestamp}";
+
+        // Save JSON version
+        string jsonPath = Path.Combine(vehicleTrackDir, $"{baseFileName}.json");
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        string json = JsonSerializer.Serialize(report, options);
+        File.WriteAllText(jsonPath, json);
+
+        // Save human-readable text version
+        string textPath = Path.Combine(vehicleTrackDir, $"{baseFileName}.txt");
+        SaveMonitoringSessionTextReport(report, textPath);
+
+        return textPath;
+    }
+
+    private void SaveMonitoringSessionTextReport(MonitoringSessionReport report, string path)
+    {
+        using var writer = new StreamWriter(path);
+
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine("MONITORING SESSION TELEMETRY DATA REPORT");
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine();
+        writer.WriteLine($"Vehicle:         {report.VehicleName}");
+        writer.WriteLine($"Track:           {report.TrackName}");
+        writer.WriteLine($"Monitoring Mode: {report.MonitoringMode}");
+        writer.WriteLine($"Session Start:   {report.SessionStart:yyyy-MM-dd HH:mm:ss}");
+        writer.WriteLine($"Session End:     {report.SessionEnd:yyyy-MM-dd HH:mm:ss}");
+        writer.WriteLine($"Duration:        {(report.SessionEnd - report.SessionStart).TotalMinutes:F1} minutes");
+        writer.WriteLine($"Data Points:     {report.TotalDataPoints}");
+        writer.WriteLine();
+
+        // Tire Pressure Summary
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine("TIRE PRESSURE ANALYSIS (PSI)");
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine();
+        writer.WriteLine($"Average:         {report.AvgTirePressure:F2} PSI");
+        writer.WriteLine($"Minimum:         {report.MinTirePressure:F2} PSI");
+        writer.WriteLine($"Maximum:         {report.MaxTirePressure:F2} PSI");
+        writer.WriteLine($"Range:           {(report.MaxTirePressure - report.MinTirePressure):F2} PSI");
+        writer.WriteLine($"Snapshots:       {report.TirePressureData.Count}");
+        writer.WriteLine();
+
+        if (report.TirePressureData.Count > 0)
+        {
+            writer.WriteLine("Tire Pressure Over Time:");
+            writer.WriteLine($"  {"Time",-20} {"FL",-10} {"FR",-10} {"RL",-10} {"RR",-10} {"Avg",-10}");
+            writer.WriteLine($"  {new string('-', 20)} {new string('-', 10)} {new string('-', 10)} {new string('-', 10)} {new string('-', 10)} {new string('-', 10)}");
+
+            // Sample every Nth entry if too many data points (show first, middle, last)
+            var sampled = SampleData(report.TirePressureData, 20);
+            foreach (var snap in sampled)
+            {
+                writer.WriteLine($"  {snap.Timestamp:HH:mm:ss.fff}        {snap.FL,6:F2}     {snap.FR,6:F2}     {snap.RL,6:F2}     {snap.RR,6:F2}     {snap.Average,6:F2}");
+            }
+            writer.WriteLine();
+        }
+
+        // Tire Temperature Summary
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine("TIRE TEMPERATURE ANALYSIS (°C)");
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine();
+        writer.WriteLine($"Average:         {report.AvgTireTemp:F2}°C");
+        writer.WriteLine($"Minimum:         {report.MinTireTemp:F2}°C");
+        writer.WriteLine($"Maximum:         {report.MaxTireTemp:F2}°C");
+        writer.WriteLine($"Range:           {(report.MaxTireTemp - report.MinTireTemp):F2}°C");
+        writer.WriteLine($"Snapshots:       {report.TireTemperatureData.Count}");
+        writer.WriteLine();
+
+        if (report.TireTemperatureData.Count > 0)
+        {
+            writer.WriteLine("Tire Temperature Over Time:");
+            writer.WriteLine($"  {"Time",-20} {"FL",-10} {"FR",-10} {"RL",-10} {"RR",-10} {"Avg",-10}");
+            writer.WriteLine($"  {new string('-', 20)} {new string('-', 10)} {new string('-', 10)} {new string('-', 10)} {new string('-', 10)} {new string('-', 10)}");
+
+            var sampled = SampleData(report.TireTemperatureData, 20);
+            foreach (var snap in sampled)
+            {
+                writer.WriteLine($"  {snap.Timestamp:HH:mm:ss.fff}        {snap.FL,6:F2}     {snap.FR,6:F2}     {snap.RL,6:F2}     {snap.RR,6:F2}     {snap.Average,6:F2}");
+            }
+            writer.WriteLine();
+        }
+
+        // RPM vs Time Analysis
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine("RPM vs TIME ANALYSIS");
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine();
+        if (report.RPMData.Count > 0)
+        {
+            var minRPM = report.RPMData.Min(r => r.RPM);
+            var maxRPM = report.RPMData.Max(r => r.RPM);
+            var avgRPM = report.RPMData.Average(r => r.RPM);
+
+            writer.WriteLine($"RPM Range:       {minRPM} - {maxRPM} RPM");
+            writer.WriteLine($"Average RPM:     {avgRPM:F0} RPM");
+            writer.WriteLine($"Snapshots:       {report.RPMData.Count}");
+            writer.WriteLine();
+
+            writer.WriteLine("RPM Over Time (Sample):");
+            writer.WriteLine($"  {"Time",-20} {"RPM",-10} {"Gear",-10}");
+            writer.WriteLine($"  {new string('-', 20)} {new string('-', 10)} {new string('-', 10)}");
+
+            var sampled = SampleData(report.RPMData, 20);
+            foreach (var snap in sampled)
+            {
+                writer.WriteLine($"  {snap.Timestamp:HH:mm:ss.fff}        {snap.RPM,6}     {snap.Gear,6}");
+            }
+            writer.WriteLine();
+        }
+
+        // Gear vs Time Analysis
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine("GEAR vs TIME ANALYSIS");
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine();
+        if (report.GearTimeDistribution.Count > 0)
+        {
+            writer.WriteLine("Time Spent in Each Gear:");
+            writer.WriteLine($"  {"Gear",-10} {"Time (s)",-15} {"Percentage",-15}");
+            writer.WriteLine($"  {new string('-', 10)} {new string('-', 15)} {new string('-', 15)}");
+
+            var totalTime = report.GearTimeDistribution.Values.Sum();
+            foreach (var kvp in report.GearTimeDistribution.OrderBy(k => k.Key))
+            {
+                var timeSeconds = kvp.Value / 1000.0;
+                var percentage = (kvp.Value / (double)totalTime) * 100;
+                writer.WriteLine($"  {kvp.Key,-10} {timeSeconds,12:F2}    {percentage,12:F1}%");
+            }
+            writer.WriteLine();
+        }
+
+        // Acceleration vs Gear Analysis
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine("ACCELERATION vs GEAR ANALYSIS");
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine();
+        if (report.GearAccelerationStats.Count > 0)
+        {
+            writer.WriteLine("Speed Range by Gear:");
+            writer.WriteLine($"  {"Gear",-10} {"Min Speed",-15} {"Max Speed",-15} {"Avg Speed",-15} {"Samples",-10}");
+            writer.WriteLine($"  {new string('-', 10)} {new string('-', 15)} {new string('-', 15)} {new string('-', 15)} {new string('-', 10)}");
+
+            foreach (var kvp in report.GearAccelerationStats.OrderBy(k => k.Key))
+            {
+                var stats = kvp.Value;
+                writer.WriteLine($"  {stats.Gear,-10} {stats.MinSpeed,12:F1} km/h {stats.MaxSpeed,12:F1} km/h {stats.AvgSpeed,12:F1} km/h {stats.SampleCount,7}");
+            }
+            writer.WriteLine();
+        }
+
+        writer.WriteLine("=".PadRight(80, '='));
+        writer.WriteLine("End of Report");
+        writer.WriteLine("=".PadRight(80, '='));
+    }
+
+    /// <summary>
+    /// Samples data evenly from a list to reduce output size.
+    /// Returns at most maxSamples items, evenly distributed.
+    /// </summary>
+    private List<T> SampleData<T>(List<T> data, int maxSamples)
+    {
+        if (data.Count <= maxSamples)
+            return data;
+
+        var result = new List<T>();
+        var step = (double)data.Count / maxSamples;
+
+        for (int i = 0; i < maxSamples; i++)
+        {
+            var index = (int)(i * step);
+            if (index < data.Count)
+                result.Add(data[index]);
+        }
+
+        return result;
+    }
+
+    #endregion
+
     public string GetReportsPath() => _baseDataPath;
 }

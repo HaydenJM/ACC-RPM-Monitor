@@ -82,3 +82,97 @@ public class GearLearningReport
     public int Difference { get; set; } // Performance - Physics
     public string Interpretation { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Monitoring session telemetry data report.
+/// Generated when any monitoring mode stops to provide data insights.
+/// </summary>
+public class MonitoringSessionReport
+{
+    public DateTime SessionStart { get; set; }
+    public DateTime SessionEnd { get; set; }
+    public string VehicleName { get; set; } = "";
+    public string TrackName { get; set; } = "";
+    public string MonitoringMode { get; set; } = "";
+    public int TotalDataPoints { get; set; }
+
+    // Tire pressure data
+    public List<TirePressureSnapshot> TirePressureData { get; set; } = new();
+    public float AvgTirePressure { get; set; }
+    public float MinTirePressure { get; set; }
+    public float MaxTirePressure { get; set; }
+
+    // Tire temperature data
+    public List<TireTemperatureSnapshot> TireTemperatureData { get; set; } = new();
+    public float AvgTireTemp { get; set; }
+    public float MinTireTemp { get; set; }
+    public float MaxTireTemp { get; set; }
+
+    // RPM vs Time data
+    public List<RPMSnapshot> RPMData { get; set; } = new();
+
+    // Gear vs Time data
+    public List<GearSnapshot> GearData { get; set; } = new();
+    public Dictionary<int, int> GearTimeDistribution { get; set; } = new(); // Gear -> Total time in ms
+
+    // Acceleration vs Gear
+    public Dictionary<int, List<float>> AccelerationByGear { get; set; } = new(); // Gear -> List of speeds
+    public Dictionary<int, AccelerationStats> GearAccelerationStats { get; set; } = new();
+}
+
+/// <summary>
+/// Tire pressure snapshot at a specific time.
+/// </summary>
+public class TirePressureSnapshot
+{
+    public DateTime Timestamp { get; set; }
+    public float FL { get; set; }
+    public float FR { get; set; }
+    public float RL { get; set; }
+    public float RR { get; set; }
+    public float Average { get; set; }
+}
+
+/// <summary>
+/// Tire temperature snapshot at a specific time.
+/// </summary>
+public class TireTemperatureSnapshot
+{
+    public DateTime Timestamp { get; set; }
+    public float FL { get; set; }
+    public float FR { get; set; }
+    public float RL { get; set; }
+    public float RR { get; set; }
+    public float Average { get; set; }
+}
+
+/// <summary>
+/// RPM snapshot at a specific time.
+/// </summary>
+public class RPMSnapshot
+{
+    public DateTime Timestamp { get; set; }
+    public int RPM { get; set; }
+    public int Gear { get; set; }
+}
+
+/// <summary>
+/// Gear snapshot at a specific time.
+/// </summary>
+public class GearSnapshot
+{
+    public DateTime Timestamp { get; set; }
+    public int Gear { get; set; }
+}
+
+/// <summary>
+/// Acceleration statistics for a specific gear.
+/// </summary>
+public class AccelerationStats
+{
+    public int Gear { get; set; }
+    public float MinSpeed { get; set; }
+    public float MaxSpeed { get; set; }
+    public float AvgSpeed { get; set; }
+    public int SampleCount { get; set; }
+}
