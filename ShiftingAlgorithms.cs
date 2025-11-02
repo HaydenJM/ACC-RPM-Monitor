@@ -814,7 +814,7 @@ public class PatternShift
             OffTrackTime = _offTrackTime,
             OffTrackCount = _offTrackCount,
             CompletionTime = DateTime.Now,
-            IsValid = isValidByACC && isValidByMetrics, // Both checks must pass
+            IsValid = isValidByMetrics, // Trust metrics validation (ACC IsValidLap can be unreliable)
             IsValidByACC = isValidByACC,
             IsValidByMetrics = isValidByMetrics
         };
