@@ -1,6 +1,11 @@
 # Build results
+.claude/
 bin/
 obj/
+ref/
+publish/
+docs/
+telemetry_test/
 [Dd]ebug/
 [Rr]elease/
 x64/
