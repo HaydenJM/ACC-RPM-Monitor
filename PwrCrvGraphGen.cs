@@ -94,7 +94,7 @@ public static class PwrCrvGraphGen
 
                 if (closestRPM > 0 && accelData.TryGetValue(closestRPM, out float shiftAccel))
                 {
-                    // Optimal shift marker (diamond)
+                    // Optimal shift marker (diamond) on current gear
                     var marker = plot.Add.Marker(optimalShiftRPM, shiftAccel);
                     marker.Color = gearColors[i % gearColors.Length];
                     marker.Size = 15;
@@ -112,6 +112,36 @@ public static class PwrCrvGraphGen
                     label.LabelFontColor = gearColors[i % gearColors.Length];
                     label.LabelBold = true;
                     label.OffsetY = 20;
+
+                    // Show landing RPM in next gear (if gear ratio available)
+                    if (config.GearRatios.TryGetValue(gear, out float gearRatio) && gearRatio > 0)
+                    {
+                        int nextGearRPM = (int)(optimalShiftRPM / gearRatio);
+
+                        // Find next gear data to mark landing point
+                        if (config.AccelerationCurves.TryGetValue(gear + 1, out var nextGearData))
+                        {
+                            var closestNextRPM = nextGearData.Keys
+                                .OrderBy(rpm => Math.Abs(rpm - nextGearRPM))
+                                .FirstOrDefault();
+
+                            if (closestNextRPM > 0 && nextGearData.TryGetValue(closestNextRPM, out float nextAccel))
+                            {
+                                // Landing point marker (small circle) on next gear curve
+                                var landingMarker = plot.Add.Marker(nextGearRPM, nextAccel);
+                                landingMarker.Color = gearColors[(i + 1) % gearColors.Length];
+                                landingMarker.Size = 10;
+                                landingMarker.Shape = MarkerShape.OpenCircle;
+                                landingMarker.LineWidth = 2;
+
+                                // Connection line showing the shift
+                                var shiftLine = plot.Add.Line(optimalShiftRPM, shiftAccel, nextGearRPM, nextAccel);
+                                shiftLine.Color = Colors.Gray.WithAlpha(0.5);
+                                shiftLine.LineWidth = 1.5f;
+                                shiftLine.LinePattern = LinePattern.Dotted;
+                            }
+                        }
+                    }
                 }
             }
 
