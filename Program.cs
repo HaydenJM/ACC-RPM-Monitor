@@ -317,6 +317,10 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
     int lastCompletedLaps = 0;
     bool hasDisplayedLapPressures = false;
 
+    // Track initial vehicle/track to detect changes during session
+    string? initialVehicle = null;
+    string? initialTrack = null;
+
     Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
     while (true)
@@ -325,7 +329,14 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
         string? detectedVehicle = vehicleDetector.GetCarModel();
         string? detectedTrack = vehicleDetector.GetTrackName();
 
-        if (detectedVehicle != null && detectedVehicle != currentVehicleName)
+        // Set initial vehicle/track on first detection
+        if (detectedVehicle != null && initialVehicle == null)
+            initialVehicle = detectedVehicle;
+        if (detectedTrack != null && initialTrack == null)
+            initialTrack = detectedTrack;
+
+        // Only exit if vehicle/track CHANGES during the session
+        if (initialVehicle != null && detectedVehicle != null && detectedVehicle != initialVehicle)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
             Console.WriteLine("Returning to main menu...");
@@ -333,7 +344,7 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
             break;
         }
 
-        if (detectedTrack != null && detectedTrack != configManager.CurrentTrackName)
+        if (initialTrack != null && detectedTrack != null && detectedTrack != initialTrack)
         {
             Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
@@ -655,6 +666,10 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
     int lastCompletedLaps = 0;
     bool hasDisplayedLapPressures = false;
 
+    // Track initial vehicle/track to detect changes during session
+    string? initialVehicle = null;
+    string? initialTrack = null;
+
     Console.WriteLine("Waiting for Assetto Corsa Competizione...");
 
     while (true)
@@ -663,7 +678,14 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
         string? detectedVehicle = vehicleDetector.GetCarModel();
         string? detectedTrack = vehicleDetector.GetTrackName();
 
-        if (detectedVehicle != null && detectedVehicle != currentVehicleName)
+        // Set initial vehicle/track on first detection
+        if (detectedVehicle != null && initialVehicle == null)
+            initialVehicle = detectedVehicle;
+        if (detectedTrack != null && initialTrack == null)
+            initialTrack = detectedTrack;
+
+        // Only exit if vehicle/track CHANGES during the session
+        if (initialVehicle != null && detectedVehicle != null && detectedVehicle != initialVehicle)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
             Console.WriteLine("Returning to main menu...");
@@ -671,7 +693,7 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
             break;
         }
 
-        if (detectedTrack != null && detectedTrack != configManager.CurrentTrackName)
+        if (initialTrack != null && detectedTrack != null && detectedTrack != initialTrack)
         {
             Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
@@ -1117,6 +1139,10 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     int lastCompletedLaps = 0;
     bool hasDisplayedLapPressures = false;
 
+    // Track initial vehicle/track to detect changes during session
+    string? initialVehicle = null;
+    string? initialTrack = null;
+
     Console.Clear();
     Console.WriteLine("=== ACC RPM Monitor - Performance Learning Mode ===");
     Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
@@ -1128,7 +1154,14 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
         string? detectedVehicle = vehicleDetector.GetCarModel();
         string? detectedTrack = vehicleDetector.GetTrackName();
 
-        if (detectedVehicle != null && detectedVehicle != currentVehicleName)
+        // Set initial vehicle/track on first detection
+        if (detectedVehicle != null && initialVehicle == null)
+            initialVehicle = detectedVehicle;
+        if (detectedTrack != null && initialTrack == null)
+            initialTrack = detectedTrack;
+
+        // Only exit if vehicle/track CHANGES during the session
+        if (initialVehicle != null && detectedVehicle != null && detectedVehicle != initialVehicle)
         {
             Console.WriteLine($"\nVehicle changed: {detectedVehicle}");
             Console.WriteLine("Returning to main menu...");
@@ -1136,7 +1169,7 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
             break;
         }
 
-        if (detectedTrack != null && detectedTrack != configManager.CurrentTrackName)
+        if (initialTrack != null && detectedTrack != null && detectedTrack != initialTrack)
         {
             Console.WriteLine($"\nTrack changed: {detectedTrack}");
             Console.WriteLine("Returning to main menu...");
