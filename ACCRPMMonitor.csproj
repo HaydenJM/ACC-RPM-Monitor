@@ -25,14 +25,11 @@
     <None Include="streamlit_dashboard\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- Exclude reference files and test projects from compilation -->
+  <!-- Exclude archived reference files and test projects from compilation -->
   <ItemGroup>
-    <Compile Remove="ref\**" />
-    <EmbeddedResource Remove="ref\**" />
-    <None Remove="ref\**" />
-    <Compile Remove="telemetry_test\**" />
-    <EmbeddedResource Remove="telemetry_test\**" />
-    <None Remove="telemetry_test\**" />
+    <Compile Remove="archive\**" />
+    <EmbeddedResource Remove="archive\**" />
+    <None Remove="archive\**" />
   </ItemGroup>
 
 </Project>
