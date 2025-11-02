@@ -2,9 +2,12 @@ using System.Text.Json;
 
 namespace ACCRPMMonitor;
 
-// Handles loading and saving of per-vehicle RPM configs (both manual and auto)
-// Directory structure: data/{car}/{track}/{car}_config.json or {car}_auto.json
-// Reports and graphs also saved under: data/{car}/{track}/
+/// <summary>
+/// Handles loading and saving of per-vehicle RPM configurations (both manual and auto-generated).
+/// Directory structure: data/{car}/{track}/{car}_config.json or {car}_auto.json
+/// Reports and graphs also saved under: data/{car}/{track}/
+/// v3.7.1: Enhanced vehicle/track detection and improved config organization.
+/// </summary>
 public class ConfigManager
 {
     private readonly string _configsDirectory;

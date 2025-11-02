@@ -3,6 +3,7 @@ namespace ACCRPMMonitor;
 /// <summary>
 /// Detailed report of a data collection session for auto configuration.
 /// Used by OptimalShift analyzer during auto-configuration mode.
+/// v3.7.1: Renamed from AutoConfigReport to DataReport for clarity.
 /// </summary>
 public class DataReport
 {

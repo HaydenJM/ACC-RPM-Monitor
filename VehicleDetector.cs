@@ -4,7 +4,11 @@ using System.Text;
 
 namespace ACCRPMMonitor;
 
-// Detects the current vehicle name from ACC static shared memory
+/// <summary>
+/// Detects the current vehicle and track from ACC static shared memory.
+/// Used for automatic vehicle/track switching and config management.
+/// v3.7.1: Enhanced with track detection support.
+/// </summary>
 public class VehicleDetector : IDisposable
 {
     private MemoryMappedFile? _staticMMF;

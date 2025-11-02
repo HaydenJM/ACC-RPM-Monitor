@@ -16,6 +16,7 @@ namespace ACCRPMMonitor;
 /// - RECOMMENDED: Map complete structs using [StructLayout(LayoutKind.Sequential)] for reliability
 /// - ACC uses metric units: BAR for pressure, km/h for speed, Celsius for temperature
 /// - Conversions applied: BAR → PSI (×14.5038)
+/// - v3.7.1: Added comprehensive lap timing support with IsValidLap tracking
 ///
 /// See physics_map.txt, graphics_map.txt, statics_map.txt for complete field definitions
 /// </summary>
