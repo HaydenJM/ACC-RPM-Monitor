@@ -19,9 +19,16 @@ public partial class TelemetryWindow : Window
     /// </summary>
     private void Border_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ButtonState == MouseButtonState.Pressed)
+        try
         {
-            this.DragMove();
+            if (e.LeftButton == MouseButtonState.Pressed)
+            {
+                this.DragMove();
+            }
+        }
+        catch
+        {
+            // Ignore any errors during drag (e.g., if called when not in drag state)
         }
     }
 
