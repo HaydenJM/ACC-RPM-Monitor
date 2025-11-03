@@ -30,6 +30,9 @@
     <Compile Remove="archive\**" />
     <EmbeddedResource Remove="archive\**" />
     <None Remove="archive\**" />
+    <Compile Remove="ACC-RPM-Monitor-3.5.0\**" />
+    <EmbeddedResource Remove="ACC-RPM-Monitor-3.5.0\**" />
+    <None Remove="ACC-RPM-Monitor-3.5.0\**" />
   </ItemGroup>
 
 </Project>

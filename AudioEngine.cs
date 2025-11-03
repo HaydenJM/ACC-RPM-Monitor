@@ -3,10 +3,7 @@ using NAudio.Wave;
 namespace ACCRPMMonitor;
 
 /// <summary>
-/// Audio engine with mode-specific feedback strategies for shift point guidance.
-/// Supports three modes: Standard (progressive beeping), Performance Learning (pitch guidance),
-/// and Feedback Optimization (post-shift evaluation).
-/// v3.7.1: Enhanced with endurance audio profiles and improved RPM rate tracking.
+/// Audio engine with mode-specific feedback strategies
 /// </summary>
 public class AudioEngine : IDisposable
 {
@@ -213,9 +210,8 @@ public class AudioEngine : IDisposable
             return;
         }
 
-        // Endurance mode: No audio in 6th gear or higher (gears 1-5 only)
-        // Normal mode: Audio in all gears
-        if (_currentProfile == AudioProfile.Endurance && currentGear >= 6)
+        // No audio in 6th gear or higher
+        if (currentGear >= 6)
         {
             Stop();
             return;
@@ -255,8 +251,7 @@ public class AudioEngine : IDisposable
 
     /// <summary>
     /// Standard/Adaptive mode: Progressive beeping that accelerates as RPM approaches threshold.
-    /// Normal profile: Slow beeps → fast beeps → solid tone at threshold.
-    /// Endurance profile: High frequency descending to low, less frequent beeping, brief chirp at threshold.
+    /// Slow beeps → fast beeps → solid tone at threshold.
     /// </summary>
     private void UpdateStandardAudio(int currentRPM, int threshold, int currentGear)
     {
@@ -265,48 +260,27 @@ public class AudioEngine : IDisposable
         int warningDistance = CalculateDynamicWarningDistance(rpmRate);
         int rpmFromThreshold = currentRPM - threshold;
 
-        // Only play when within warning distance (below threshold)
-        if (rpmFromThreshold < 0 && rpmFromThreshold >= -warningDistance)
+        // Each gear gets its own frequency
+        float frequency = 500f + (currentGear - 1) * 100f;
+
+        // Only play when within warning distance
+        if (rpmFromThreshold >= -warningDistance)
         {
-            // Calculate beep rate based on proximity (0.0 = far, 1.0 = at threshold)
-            float proximityRatio = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
-
-            // Frequency selection based on profile
-            float frequency;
-            if (_currentProfile == AudioProfile.Endurance)
-            {
-                // Endurance: Descending frequency (starts high, goes low)
-                // Far from threshold = high frequency (800 Hz)
-                // Close to threshold = low frequency (400 Hz)
-                float maxFreq = 800f;
-                float minFreq = 400f;
-                frequency = maxFreq - (proximityRatio * (maxFreq - minFreq));
-            }
-            else
-            {
-                // Normal: Fixed frequency per gear
-                frequency = 500f + (currentGear - 1) * 100f;
-            }
-
             _waveProvider.SetFrequency(frequency);
 
-            // Progressive beeping timing
-            if (_currentProfile == AudioProfile.Endurance)
+            // Progressive beeping based on proximity to threshold
+            if (rpmFromThreshold >= 0)
             {
-                // Endurance: Less frequent beeping for lower fatigue
-                // Far = 700ms on/700ms off, Close = 150ms on/150ms off
-                int maxBeepMs = 700;
-                int minBeepMs = 150;
-
-                int beepOnMs = (int)(maxBeepMs - (proximityRatio * (maxBeepMs - minBeepMs)));
-                int beepOffMs = beepOnMs; // Keep on/off equal for rhythm
-
-                _waveProvider.SetBeeping(true, beepOnMs, beepOffMs);
+                // At or above threshold - solid tone
+                _waveProvider.SetBeeping(false, 0, 0);
             }
             else
             {
-                // Normal: Standard progressive beeping
-                // Far = 500ms on/500ms off, Close = 50ms on/50ms off
+                // Below threshold - progressive beeping
+                // Calculate beep rate based on proximity (0.0 = far, 1.0 = at threshold)
+                float proximityRatio = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
+
+                // Beep timing: Far = 500ms on/500ms off, Close = 50ms on/50ms off, At threshold = solid
                 int maxBeepMs = 500;
                 int minBeepMs = 50;
 
@@ -322,38 +296,8 @@ public class AudioEngine : IDisposable
                 _isPlaying = true;
             }
         }
-        else if (rpmFromThreshold >= 0)
-        {
-            // At or above threshold
-            if (_currentProfile == AudioProfile.Endurance)
-            {
-                // Endurance: Brief chirp (120ms on, 400ms off) at low frequency
-                _waveProvider.SetFrequency(400f);
-                _waveProvider.SetBeeping(true, 120, 400);
-
-                if (!_isPlaying)
-                {
-                    _waveOut.Play();
-                    _isPlaying = true;
-                }
-            }
-            else
-            {
-                // Normal: Solid tone
-                float frequency = 500f + (currentGear - 1) * 100f;
-                _waveProvider.SetFrequency(frequency);
-                _waveProvider.SetBeeping(false, 0, 0);
-
-                if (!_isPlaying)
-                {
-                    _waveOut.Play();
-                    _isPlaying = true;
-                }
-            }
-        }
         else
         {
-            // Outside warning distance - stop audio
             Stop();
         }
     }
@@ -413,16 +357,8 @@ public class AudioEngine : IDisposable
             // Check if current tone duration has expired
             else if ((DateTime.Now - _performanceAudioStartTime).TotalMilliseconds >= toneToPlay.DurationMs)
             {
-                // Tone finished
+                // Tone finished, stop audio and wait for next trigger
                 Stop();
-
-                // Endurance mode: Add gap between tones for less fatigue
-                if (_currentProfile == AudioProfile.Endurance)
-                {
-                    // Wait 200ms before next tone can start
-                    Thread.Sleep(200);
-                }
-
                 _performanceAudioStartTime = DateTime.MinValue;
             }
         }
@@ -627,6 +563,79 @@ public class AudioEngine : IDisposable
 
     public float GetCurrentRPMRate() => CalculateRPMRate();
     public int GetCurrentWarningDistance() => CalculateDynamicWarningDistance(CalculateRPMRate());
+
+    /// <summary>
+    /// Plays a preview of the three tones for a given profile and mode.
+    /// Used to let users hear the audio feedback before selecting a profile/mode.
+    /// </summary>
+    public void PlayTonePreview(AudioMode mode, AudioProfile profile)
+    {
+        // Determine which tones to play based on profile
+        ToneProfile tooEarly, optimal, tooLate;
+
+        if (profile == AudioProfile.Endurance)
+        {
+            tooEarly = _toneEnduranceTooEarly;
+            optimal = _toneEnduranceOptimal;
+            tooLate = _toneEnduranceTooLate;
+        }
+        else
+        {
+            tooEarly = _toneTooEarly;
+            optimal = _toneOptimal;
+            tooLate = _toneTooLate;
+        }
+
+        // Play each tone in sequence with a gap between
+        if (mode == AudioMode.PerformanceLearning || mode == AudioMode.FeedbackOptimization)
+        {
+            // Play "Too Early" tone
+            PlayTone(tooEarly);
+            Thread.Sleep(tooEarly.DurationMs + 300); // Tone duration + gap
+            Stop();
+
+            // Play "Optimal" tone
+            PlayTone(optimal);
+            Thread.Sleep(optimal.DurationMs + 300);
+            Stop();
+
+            // Play "Too Late" tone
+            PlayTone(tooLate);
+            Thread.Sleep(tooLate.DurationMs + 300);
+            Stop();
+        }
+        else // Standard/Adaptive mode
+        {
+            // For standard mode, demonstrate progressive beeping at different zones
+            // Simulate "too early" zone
+            _waveProvider.SetFrequency(500f);
+            _waveProvider.SetBeeping(true, 500, 500); // Slow beeping
+            _waveOut.Play();
+            _isPlaying = true;
+            Thread.Sleep(1000);
+            Stop();
+
+            Thread.Sleep(300);
+
+            // Simulate "approaching" zone
+            _waveProvider.SetFrequency(600f);
+            _waveProvider.SetBeeping(true, 100, 100); // Faster beeping
+            _waveOut.Play();
+            _isPlaying = true;
+            Thread.Sleep(800);
+            Stop();
+
+            Thread.Sleep(300);
+
+            // Simulate "at threshold" zone - solid tone
+            _waveProvider.SetFrequency(700f);
+            _waveProvider.SetBeeping(false, 0, 0); // Solid tone
+            _waveOut.Play();
+            _isPlaying = true;
+            Thread.Sleep(600);
+            Stop();
+        }
+    }
 
     public void Stop()
     {
