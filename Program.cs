@@ -661,12 +661,7 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
     }
     else
     {
-        Console.WriteLine("Select audio profile:");
-        Console.WriteLine("  1. Normal (responsive tones)");
-        Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
-        Console.Write("Choice: ");
-        var profileChoice = Console.ReadLine();
-        audioProfile = profileChoice == "2" ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
+        audioProfile = SelectAudioProfileWithPreview(audioEngine, AudioEngine.AudioMode.Standard);
         audioEngine.SetAudioProfile(audioProfile);
     }
     // Use default audio mode (standard beeping) for adaptive mode
@@ -1095,6 +1090,11 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     var shiftAnalyzer = new OptimalShift(); // For physics-based analysis
     var shiftPatternAnalyzer = new PatternShift(); // For shift detection
     var learningEngine = new PerformanceEng(shiftPatternAnalyzer, shiftAnalyzer);
+
+    // Set max gear to prevent shift points from non-existent gears
+    learningEngine.SetMaxGear(config.MaxGear);
+    shiftPatternAnalyzer.SetMaxGear(config.MaxGear);
+
     var reportGenerator = new ReportGen(configManager);
 
     // Initialize gear recommendation engine if available
@@ -1134,8 +1134,10 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     Console.Write("Choice: ");
     var feedbackModeChoice = Console.ReadLine();
 
+    AudioEngine.AudioMode selectedMode = AudioEngine.AudioMode.PerformanceLearning;
     if (feedbackModeChoice == "2")
     {
+        selectedMode = AudioEngine.AudioMode.FeedbackOptimization;
         audioEngine.SetMode(AudioEngine.AudioMode.FeedbackOptimization);
     }
     Console.WriteLine();
@@ -1149,12 +1151,7 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     }
     else
     {
-        Console.WriteLine("Select audio profile:");
-        Console.WriteLine("  1. Normal (responsive tones)");
-        Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
-        Console.Write("Choice: ");
-        var profileChoice = Console.ReadLine();
-        audioProfile = profileChoice == "2" ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
+        audioProfile = SelectAudioProfileWithPreview(audioEngine, selectedMode);
         audioEngine.SetAudioProfile(audioProfile);
     }
     Console.WriteLine();
@@ -1685,6 +1682,53 @@ static TelemetryServer? ToggleTelemetryServer(TelemetryServer? currentServer)
             Console.WriteLine("\nPress any key to return to main menu...");
             Console.ReadKey();
             return null;
+        }
+    }
+}
+
+// Audio preview selection helper
+static AudioEngine.AudioProfile SelectAudioProfileWithPreview(AudioEngine audioEngine, AudioEngine.AudioMode mode)
+{
+    while (true)
+    {
+        Console.WriteLine("Select audio profile:");
+        Console.WriteLine("  1. Normal (responsive tones)");
+        Console.WriteLine("  2. Endurance (low-fatigue for long sessions)");
+        Console.WriteLine();
+        Console.WriteLine("  [P] Preview Normal profile tones");
+        Console.WriteLine("  [E] Preview Endurance profile tones");
+        Console.WriteLine();
+        Console.Write("Choice (1/2/P/E): ");
+
+        var input = Console.ReadLine()?.Trim().ToUpper();
+
+        if (input == "1")
+        {
+            return AudioEngine.AudioProfile.Normal;
+        }
+        else if (input == "2")
+        {
+            return AudioEngine.AudioProfile.Endurance;
+        }
+        else if (input == "P")
+        {
+            Console.WriteLine();
+            Console.WriteLine("Playing Normal profile preview...");
+            Console.WriteLine("  (Too Early → Optimal → Too Late)");
+            Console.WriteLine();
+            audioEngine.PlayTonePreview(mode, AudioEngine.AudioProfile.Normal);
+            Console.WriteLine("Preview complete.");
+            Console.WriteLine();
+        }
+        else if (input == "E")
+        {
+            Console.WriteLine();
+            Console.WriteLine("Playing Endurance profile preview...");
+            Console.WriteLine("  (Too Early → Optimal → Too Late)");
+            Console.WriteLine();
+            audioEngine.PlayTonePreview(mode, AudioEngine.AudioProfile.Endurance);
+            Console.WriteLine("Preview complete.");
+            Console.WriteLine();
         }
     }
 }
