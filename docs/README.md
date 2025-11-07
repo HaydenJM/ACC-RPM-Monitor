@@ -39,8 +39,11 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 - **In-App Help**: Access comprehensive help menu directly from main menu without needing external documentation
 
 ### Intelligent Shift Detection & Performance Learning
-- **Automatic Vehicle Detection**:
+- **Automatic Vehicle Detection with Live Monitoring**:
   - Detects current car from ACC shared memory at startup
+  - Background thread monitors for vehicle changes every 100ms
+  - Immediately redirects to vehicle selection when vehicle changes
+  - Prevents data corruption by halting all monitoring on vehicle switch
   - Shows detected vehicle in vehicle selection menu with [detected] marker
   - One-click auto-select (press [A]) to switch to detected vehicle
   - Reads from ACC Static Memory (offset 68, verified from ACC SDK)
@@ -48,7 +51,7 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
   - **Manual Mode**: Define your own custom RPM shift points (fully editable)
   - **Auto Mode**: Uses learned optimal shift points (read-only)
 - **Dedicated Data Collection Workflow**:
-  - Step-by-step instructions for hotlap sessions (Monza/Paul Ricard recommended)
+  - Step-by-step instructions for hotlap sessions (Paul Ricard in AC2 recommended)
   - F1 key controls data collection start/stop
   - Focuses on gears 1-5 for comprehensive analysis
   - Real-time per-gear data point tracking
@@ -85,14 +88,14 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
   - Records shift context: RPM, speed, throttle, track position
 - **Lap Performance Tracking**:
   - Monitors lap times from ACC telemetry
-  - Tracks off-track events and duration
-  - Validates laps (ACC's validated_laps + sanity checks)
+  - Validates laps using ACC's internal IsValidLap flag
   - Only uses valid laps for learning
+  - Trusts game's lap validation for accuracy
 - **Shift Pattern Analysis**:
   - Groups shifts into 200 RPM buckets per gear
   - Calculates average lap time for each RPM range
   - Identifies optimal shift points based on performance
-  - Composite scoring: lap time + (off-track time × 1000ms penalty)
+  - Composite scoring based on lap time performance
 - **Real-Time Guidance**:
   - Shows learning status (laps, shifts, confidence, data quality)
   - Live recommendations: "Try shifting 200 RPM earlier for better performance"
@@ -122,7 +125,7 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 
 ### Creating Auto Configuration
 1. **Select Workflow**: Choose "Create Auto Configuration" from main menu
-2. **Follow Instructions**: Load Monza or Paul Ricard and start practice session
+2. **Follow Instructions**: Load Paul Ricard in AC2 and start practice session
 3. **Collect Data**: Press F1 to start, accelerate through gears 1-5 at high throttle, press F1 to stop
 4. **Analyze Results**: App immediately analyzes data and shows per-gear confidence scores
 5. **Review Reports**: Detailed reports and power curve graphs saved showing exactly how shift points were determined
@@ -147,7 +150,7 @@ ACC RPM Monitor reads telemetry data directly from ACC's shared memory to provid
 
 ## Requirements
 
-- Windows (requires .NET 6.0 runtime)
+- Windows (requires .NET 8.0 runtime)
 - Assetto Corsa Competizione
 - Audio output device
 
@@ -168,10 +171,11 @@ The application will automatically detect your vehicle when you run it with ACC 
 - Use the "Open Config Folder" menu option to quickly access these files
 
 ### Recommended Workflow
-1. **Auto-Config for New Vehicles**: Use "Create Auto Configuration" with a hotlap session for quick, optimal setup
+1. **Auto-Config for New Vehicles**: Use "Create Auto Configuration" at Paul Ricard in AC2 for quick, optimal setup
 2. **Fine-Tune if Needed**: Switch to manual mode and adjust individual gears
 3. **Use Adaptive Mode**: Enable continuous learning in monitoring mode (F2 to save)
 4. **Monitor**: Use your configuration during races and practice sessions
+5. **Vehicle Changes**: App automatically detects and prompts when you switch vehicles
 
 ## Troubleshooting
 
@@ -198,7 +202,7 @@ dotnet build -c Release
 ```
 
 Requires:
-- .NET 6.0 SDK
+- .NET 8.0 SDK
 - Dependencies managed via NuGet
 
 ## License
@@ -211,5 +215,22 @@ For issues or feature requests, please refer to the project repository.
 
 ---
 
-**Current Version**: v3.2.0
-**Last Updated**: October 2025
+**Current Version**: v3.8.0
+**Last Updated**: November 2024
+
+## Recent Updates (v3.8.0)
+
+### Features
+- **Immediate Vehicle Change Detection**: Background monitoring thread detects vehicle changes in 100ms
+- **Auto-Redirect on Vehicle Switch**: Instantly redirects to vehicle selection when vehicle changes
+- **Instant Input Response**: Y/N prompts respond immediately without Enter key
+
+### Bug Fixes
+- **Fixed Lap Validation**: Now uses ACC's internal IsValidLap flag for accurate validation
+- **Removed Faulty Off-Track Detection**: Eliminated elevation-based detection that caused false positives
+- **Updated AutoConfig Instructions**: Specifies Paul Ricard in AC2 for optimal data collection
+
+### Technical Improvements
+- Added VehicleChangeMonitor class with dedicated background thread
+- Simplified lap validity logic in ShiftingAlgorithms
+- Improved user input responsiveness throughout application
