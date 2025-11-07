@@ -428,8 +428,8 @@ public static class ConfigUI
             Console.WriteLine("Performance Learning/Adaptive mode not generating results?");
             Console.WriteLine("  - Minimum 2 valid laps required for performance analysis report");
             Console.WriteLine("  - Minimum 3 valid laps required for shift point adjustment/saving");
-            Console.WriteLine("  - A lap is invalid if: off-track time ≥3.0 seconds cumulative");
-            Console.WriteLine("  - Drive smoothly and stay mostly on track to ensure valid laps");
+            Console.WriteLine("  - Lap validity is determined by ACC's internal validation");
+            Console.WriteLine("  - Drive clean laps and avoid excessive off-track excursions");
             Console.WriteLine();
             Console.WriteLine("Press any key to continue...");
             Console.ReadKey();
@@ -458,9 +458,10 @@ public static class ConfigUI
             }
 
             Console.Write($"Are you sure you want to delete '{vehicleToDelete}'? (Y/N): ");
-            string? confirm = Console.ReadLine()?.ToUpper();
+            var confirm = Console.ReadKey().KeyChar;
+            Console.WriteLine();
 
-            if (confirm == "Y")
+            if (confirm == 'Y' || confirm == 'y')
             {
                 if (configManager.DeleteVehicle(vehicleToDelete))
                 {

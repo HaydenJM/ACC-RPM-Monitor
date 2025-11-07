@@ -13,7 +13,7 @@ public static class AutoConfigurationFlow
         Console.WriteLine($"Vehicle: {configManager.CurrentVehicleName}");
         Console.WriteLine();
         Console.WriteLine("Instructions:");
-        Console.WriteLine("  1. Load Monza or Paul Ricard in Assetto Corsa Competizione");
+        Console.WriteLine("  1. Load Paul Ricard in AC2");
         Console.WriteLine("  2. Start a practice or hotlap session");
         Console.WriteLine("  3. Press F1 to START data collection");
         Console.WriteLine();

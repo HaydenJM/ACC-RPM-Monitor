@@ -340,7 +340,7 @@ public class OptimalShift
         var topRPMThreshold = maxRPM - (rpmRange * 0.2f);
         // Optimized for SHORT-TERM acceleration: shift as soon as next gear becomes meaningfully better
         // Lower threshold = earlier shifts = maximize instantaneous acceleration
-        const float minimumAdvantageThreshold = 0.03f; // 3% advantage is sufficient for short-term optimization
+        const float minimumAdvantageThreshold = 0.015f; // 3% advantage is sufficient for short-term optimization
 
         // Find the FIRST RPM where next gear provides meaningful advantage
         // This prioritizes short-term acceleration over holding gears to redline
@@ -676,9 +676,6 @@ public class PatternShift
     private float _lastThrottle = 0;
     private int _currentLapNumber = 0;
     private DateTime _lapStartTime = DateTime.Now;
-    private float _offTrackTime = 0;
-    private int _offTrackCount = 0;
-    private bool _wasOffTrack = false;
     private DateTime _lastUpdate = DateTime.Now;
     private bool _wasCurrentLapValid = false; // Track validity status of lap in progress
 
@@ -698,7 +695,7 @@ public class PatternShift
     /// Updates the analyzer with current telemetry data. Call this every frame (~20Hz).
     /// </summary>
     public void Update(int gear, int rpm, float throttle, float speed, float normalizedPosition,
-                       LapTimingData? lapTiming, bool isOffTrack)
+                       LapTimingData? lapTiming)
     {
         var now = DateTime.Now;
         float deltaTime = (float)(now - _lastUpdate).TotalSeconds;
@@ -727,17 +724,6 @@ public class PatternShift
             }
         }
 
-        // Track off-track events
-        if (isOffTrack && !_wasOffTrack)
-        {
-            _offTrackCount++;
-        }
-        if (isOffTrack)
-        {
-            _offTrackTime += deltaTime;
-        }
-        _wasOffTrack = isOffTrack;
-
         // Track lap validity status (this tells us if the CURRENT lap in progress is valid)
         if (lapTiming != null)
         {
@@ -751,8 +737,6 @@ public class PatternShift
             CompleteLap(lapTiming, _wasCurrentLapValid);
             _currentLapNumber = lapTiming.CompletedLaps;
             _lapStartTime = now;
-            _offTrackTime = 0;
-            _offTrackCount = 0;
             // Reset validity for new lap (will be updated in next frame)
             _wasCurrentLapValid = lapTiming.IsCurrentLapValid;
         }
@@ -790,33 +774,26 @@ public class PatternShift
 
     /// <summary>
     /// Completes the current lap and associates all shifts with lap performance.
-    /// Uses ACC's is_valid_lap field to determine lap validity.
-    /// NOTE: is_valid_lap is reliable in practice/qualifying but less reliable in races.
+    /// Uses ACC's IsValidLap field to determine lap validity.
     /// </summary>
     private void CompleteLap(LapTimingData lapTiming, bool wasLapValid)
     {
         if (_currentLapNumber == 0)
             return; // First lap, no data yet
 
-        // Primary validity check: Use ACC's is_valid_lap field (tracked from previous frame)
-        bool isValidByACC = wasLapValid;
-
-        // Secondary validity check: Basic sanity checks on lap time and off-track
-        // Off-track limit: 3.0 seconds cumulative (â‰¥50% off track) invalidates lap
-        bool isValidByMetrics = lapTiming.LastLapTimeMs < int.MaxValue &&
-                                lapTiming.LastLapTimeMs > 0 &&
-                                _offTrackTime < 3.0f;
+        // Use ACC's IsValidLap - trust the game's validation
+        bool isValid = wasLapValid && lapTiming.LastLapTimeMs > 0 && lapTiming.LastLapTimeMs < int.MaxValue;
 
         var lapPerformance = new LapPerformance
         {
             LapNumber = _currentLapNumber,
             LapTime = lapTiming.LastLapTimeMs,
-            OffTrackTime = _offTrackTime,
-            OffTrackCount = _offTrackCount,
+            OffTrackTime = 0, // No longer tracked
+            OffTrackCount = 0, // No longer tracked
             CompletionTime = DateTime.Now,
-            IsValid = isValidByMetrics, // Trust metrics validation (ACC IsValidLap can be unreliable)
-            IsValidByACC = isValidByACC,
-            IsValidByMetrics = isValidByMetrics
+            IsValid = isValid,
+            IsValidByACC = wasLapValid,
+            IsValidByMetrics = lapTiming.LastLapTimeMs > 0 && lapTiming.LastLapTimeMs < int.MaxValue
         };
 
         _lapHistory.Add(lapPerformance);
@@ -982,8 +959,6 @@ public class PatternShift
         _lapHistory.Clear();
         _shiftPerformanceByGear.Clear();
         _currentLapNumber = 0;
-        _offTrackTime = 0;
-        _offTrackCount = 0;
     }
 
     public int GetTotalShifts() => _shiftHistory.Count;

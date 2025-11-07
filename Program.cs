@@ -59,6 +59,28 @@ if (cmdArgs.EnableTelemetry)
     Console.WriteLine("Telemetry window will be displayed");
 }
 
+// Initialize vehicle change monitor - runs in background thread
+var vehicleMonitor = new VehicleChangeMonitor();
+bool vehicleChanged = false;
+string? newVehicleName = null;
+
+vehicleMonitor.VehicleChanged += (sender, e) =>
+{
+    // Vehicle changed - set flag to trigger vehicle selection
+    vehicleChanged = true;
+    newVehicleName = e.NewVehicle;
+    Console.SetCursorPosition(0, Console.CursorTop);
+    Console.WriteLine($"\n\nVEHICLE CHANGED: {e.NewVehicle}                                         ");
+    Console.WriteLine("Returning to vehicle selection...                                        ");
+    Thread.Sleep(2000);
+};
+
+// Start monitoring with initial vehicle
+if (!string.IsNullOrEmpty(detectedVehicle))
+{
+    vehicleMonitor.Start(detectedVehicle);
+}
+
 // Check if detected vehicle has a config
 if (!string.IsNullOrEmpty(detectedVehicle))
 {
@@ -71,9 +93,10 @@ if (!string.IsNullOrEmpty(detectedVehicle))
         Console.WriteLine();
         Console.Write("Would you like to create a configuration for this vehicle? (Y/N): ");
 
-        var response = Console.ReadLine()?.Trim().ToUpper();
+        var response = Console.ReadKey().KeyChar;
+        Console.WriteLine();
 
-        if (response == "Y" || response == "YES")
+        if (response == 'Y' || response == 'y')
         {
             Console.Write("Enter track name: ");
             string? trackName = Console.ReadLine()?.Trim();
@@ -122,6 +145,21 @@ if (configManager.GetAvailableVehicles().Count == 0)
 bool exitApp = false;
 while (!exitApp)
 {
+    // Check if vehicle changed - if so, go to vehicle selection
+    if (vehicleChanged)
+    {
+        vehicleChanged = false;
+        if (!string.IsNullOrEmpty(newVehicleName))
+        {
+            configManager.SetVehicle(newVehicleName);
+            // Update monitor with new vehicle
+            vehicleMonitor.Stop();
+            vehicleMonitor.Start(newVehicleName);
+        }
+        ConfigUI.ShowVehicleSelectionMenu(configManager);
+        continue;
+    }
+
     var menuChoice = ConfigUI.ShowMainMenu(configManager, telemetryServer != null && telemetryServer.IsRunning);
 
     switch (menuChoice)
@@ -154,6 +192,9 @@ while (!exitApp)
 
         case MainMenuChoice.ChangeVehicle:
             ConfigUI.ShowVehicleSelectionMenu(configManager);
+            // Update vehicle monitor with new selection
+            vehicleMonitor.Stop();
+            vehicleMonitor.Start(configManager.CurrentVehicleName);
             break;
 
         case MainMenuChoice.OpenConfigFolder:
@@ -169,6 +210,10 @@ while (!exitApp)
             break;
     }
 }
+
+// Clean up
+vehicleMonitor?.Dispose();
+telemetryServer?.Dispose();
 
 Console.Clear();
 Console.WriteLine("Goodbye!");
@@ -1025,8 +1070,9 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
     Console.WriteLine($"Total data points collected: {shiftAnalyzer.GetDataPointCount()}");
     Console.WriteLine();
     Console.Write("Save learned configuration? (Y/N): ");
-    var saveChoice = Console.ReadLine()?.Trim().ToUpper();
-    if (saveChoice == "Y" || saveChoice == "YES")
+    var saveChoice = Console.ReadKey().KeyChar;
+    Console.WriteLine();
+    if (saveChoice == 'Y' || saveChoice == 'y')
     {
         var optimalConfig = shiftAnalyzer.GenerateOptimalConfig();
         if (optimalConfig != null)
@@ -1163,9 +1209,7 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     DateTime lastLearnUpdate = DateTime.Now;
     const int LearnIntervalSeconds = 15; // Update learned shift points every 15 seconds
 
-    // Off-track detection state
-    float lastLocalY = 0;
-    const float OffTrackThreshold = 0.5f; // Threshold for detecting off-track
+    // Removed off-track detection - now using ACC's IsValidLap flag
 
     // Tire pressure tracking for lap-before/lap-after display
     WheelAndTireData? lapStartTirePressure = null;
@@ -1340,18 +1384,6 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
             continue;
         }
 
-        // Detect off-track (simplified: using vertical position change)
-        bool isOffTrack = false;
-        if (position != null)
-        {
-            if (lastLocalY != 0)
-            {
-                float yDelta = Math.Abs(position.LocalY - lastLocalY);
-                isOffTrack = yDelta > OffTrackThreshold; // Large vertical change suggests off-track
-            }
-            lastLocalY = position.LocalY;
-        }
-
         // Convert gear for display (ACC uses gear 2 as first gear)
         int displayGear = currentGear - 1;
 
@@ -1370,8 +1402,7 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
                 throttle,
                 speed,
                 position.NormalizedPosition,
-                lapTiming,
-                isOffTrack
+                lapTiming
             );
 
             // Also feed data to acceleration analyzer for physics-based learning
@@ -1598,8 +1629,9 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
         }
 
         Console.Write("Save learned shift points to configuration? (Y/N): ");
-        var saveChoice = Console.ReadLine()?.Trim().ToUpper();
-        if (saveChoice == "Y" || saveChoice == "YES")
+        var saveChoice = Console.ReadKey().KeyChar;
+        Console.WriteLine();
+        if (saveChoice == 'Y' || saveChoice == 'y')
         {
             var learnedPoints = learningEngine.GenerateOptimalShiftPoints();
             foreach (var kvp in learnedPoints)

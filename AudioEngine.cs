@@ -252,6 +252,7 @@ public class AudioEngine : IDisposable
     /// <summary>
     /// Standard/Adaptive mode: Progressive beeping that accelerates as RPM approaches threshold.
     /// Slow beeps → fast beeps → solid tone at threshold.
+    /// Uses a single consistent frequency across all gears.
     /// </summary>
     private void UpdateStandardAudio(int currentRPM, int threshold, int currentGear)
     {
@@ -260,8 +261,8 @@ public class AudioEngine : IDisposable
         int warningDistance = CalculateDynamicWarningDistance(rpmRate);
         int rpmFromThreshold = currentRPM - threshold;
 
-        // Each gear gets its own frequency
-        float frequency = 500f + (currentGear - 1) * 100f;
+        // Use consistent frequency for all gears (600Hz)
+        float frequency = 600f;
 
         // Only play when within warning distance
         if (rpmFromThreshold >= -warningDistance)
