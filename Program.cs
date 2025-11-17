@@ -3,16 +3,6 @@ using System.Runtime.InteropServices;
 
 try
 {
-// Parse command-line arguments
-var cmdArgs = CommandLineArgs.Parse(args);
-
-// Show help and exit if requested
-if (cmdArgs.ShowHelp)
-{
-    CommandLineArgs.ShowHelpText();
-    return;
-}
-
 // Set console window size to fixed dimensions (82x60)
 // Buffer size matches window size to prevent scrolling and resizing
 try
@@ -31,38 +21,40 @@ catch (Exception)
 // Initialize vehicle detector to read car and track info from ACC
 var vehicleDetector = new VehicleDetector();
 
-// Try to detect current vehicle from ACC
+// Try to detect current vehicle and track from ACC
 string? detectedVehicle = null;
+string? detectedTrack = null;
 
-Console.WriteLine("Detecting vehicle from ACC...");
+Console.WriteLine("Detecting vehicle and track from ACC...");
 if (vehicleDetector.Connect())
 {
     detectedVehicle = vehicleDetector.GetCarModel();
+    detectedTrack = vehicleDetector.GetTrackName();
 
     if (!string.IsNullOrEmpty(detectedVehicle))
         Console.WriteLine($"Detected vehicle: {detectedVehicle}");
 
+    if (!string.IsNullOrEmpty(detectedTrack))
+        Console.WriteLine($"Detected track: {detectedTrack}");
+
     vehicleDetector.Dispose();
 }
 
-// Initialize config manager with detected vehicle and default track
+// Initialize config manager with detected vehicle and track
 var configManager = new ConfigManager(
     vehicleName: detectedVehicle ?? "default",
-    trackName: "default"
+    trackName: detectedTrack ?? "default"
 );
 
-// Initialize telemetry server if requested via command-line
+// Initialize telemetry server (can be toggled from menu)
 TelemetryServer? telemetryServer = null;
-if (cmdArgs.EnableTelemetry)
-{
-    telemetryServer = new TelemetryServer();
-    Console.WriteLine("Telemetry window will be displayed");
-}
 
 // Initialize vehicle change monitor - runs in background thread
 var vehicleMonitor = new VehicleChangeMonitor();
 bool vehicleChanged = false;
 string? newVehicleName = null;
+bool trackChanged = false;
+string? newTrackName = null;
 
 vehicleMonitor.VehicleChanged += (sender, e) =>
 {
@@ -75,10 +67,22 @@ vehicleMonitor.VehicleChanged += (sender, e) =>
     Thread.Sleep(2000);
 };
 
-// Start monitoring with initial vehicle
+vehicleMonitor.TrackChanged += (sender, e) =>
+{
+    // Track changed - update config manager
+    trackChanged = true;
+    newTrackName = e.NewTrack;
+    configManager.SetTrack(e.NewTrack);
+    Console.SetCursorPosition(0, Console.CursorTop);
+    Console.WriteLine($"\n\nTRACK CHANGED: {e.NewTrack}                                             ");
+    Console.WriteLine($"Updated configuration directory to: {configManager.GetVehicleDataDirectory()}");
+    Thread.Sleep(2000);
+};
+
+// Start monitoring with initial vehicle and track
 if (!string.IsNullOrEmpty(detectedVehicle))
 {
-    vehicleMonitor.Start(detectedVehicle);
+    vehicleMonitor.Start(detectedVehicle, detectedTrack);
 }
 
 // Check if detected vehicle has a config
@@ -154,7 +158,7 @@ while (!exitApp)
             configManager.SetVehicle(newVehicleName);
             // Update monitor with new vehicle
             vehicleMonitor.Stop();
-            vehicleMonitor.Start(newVehicleName);
+            vehicleMonitor.Start(newVehicleName, configManager.CurrentTrackName);
         }
         ConfigUI.ShowVehicleSelectionMenu(configManager);
         continue;
@@ -194,7 +198,7 @@ while (!exitApp)
             ConfigUI.ShowVehicleSelectionMenu(configManager);
             // Update vehicle monitor with new selection
             vehicleMonitor.Stop();
-            vehicleMonitor.Start(configManager.CurrentVehicleName);
+            vehicleMonitor.Start(configManager.CurrentVehicleName, configManager.CurrentTrackName);
             break;
 
         case MainMenuChoice.OpenConfigFolder:
@@ -294,30 +298,23 @@ static void RunMonitor(ConfigManager configManager, ShiftPointConfig config, Tel
 
     if (choice == "3")
     {
-        RunPerformanceLearningMonitor(configManager, config, telemetryServer, null);
+        RunPerformanceLearningMonitor(configManager, config, telemetryServer);
     }
     else if (choice == "2")
     {
-        RunAdaptiveMonitor(configManager, config, telemetryServer, null);
+        RunAdaptiveMonitor(configManager, config, telemetryServer);
     }
     else
     {
-        RunStandardMonitor(configManager, config, telemetryServer, null);
+        RunStandardMonitor(configManager, config, telemetryServer);
     }
 }
 
 // Standard monitor mode with fixed shift points
-static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
+static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer)
 {
     // Initialize dynamic audio engine
     using var audioEngine = new AudioEngine();
-
-    // Apply audio profile from command-line args if specified
-    if (cmdArgs != null)
-    {
-        var audioProfile = cmdArgs.EnduranceSound ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
-        audioEngine.SetAudioProfile(audioProfile);
-    }
 
     // Initialize ACC shared memory
     using var accMemory = new SharedMemoryReader();
@@ -480,6 +477,12 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
                 var physics = accMemory.ReadPhysicsStruct();
                 float fuel = physics?.Fuel ?? 0f;
                 telemetryServer.UpdateTelemetry(tireData, currentRPM, currentGear - 1, speed, fuel);
+
+                // Update lap comparison data
+                if (lapTiming != null)
+                {
+                    telemetryServer.UpdateLapData(lapTiming.CompletedLaps, tireData);
+                }
             }
             else
             {
@@ -647,7 +650,7 @@ static void RunStandardMonitor(ConfigManager configManager, ShiftPointConfig con
 }
 
 // Adaptive monitor mode - continuously learns and updates shift points
-static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
+static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer)
 {
     // Initialize dynamic audio engine
     using var audioEngine = new AudioEngine();
@@ -697,18 +700,9 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
     }
     Console.WriteLine("Press ESC to exit | Press F2 to save learned config\n");
 
-    // Audio profile selection (skip if provided via command-line)
-    AudioEngine.AudioProfile audioProfile;
-    if (cmdArgs != null)
-    {
-        audioProfile = cmdArgs.EnduranceSound ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
-        audioEngine.SetAudioProfile(audioProfile);
-    }
-    else
-    {
-        audioProfile = SelectAudioProfileWithPreview(audioEngine, AudioEngine.AudioMode.Standard);
-        audioEngine.SetAudioProfile(audioProfile);
-    }
+    // Audio profile selection
+    var audioProfile = SelectAudioProfileWithPreview(audioEngine, AudioEngine.AudioMode.Standard);
+    audioEngine.SetAudioProfile(audioProfile);
     // Use default audio mode (standard beeping) for adaptive mode
     Console.WriteLine();
 
@@ -899,6 +893,12 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
                 var physics = accMemory.ReadPhysicsStruct();
                 float fuel = physics?.Fuel ?? 0f;
                 telemetryServer.UpdateTelemetry(tireData, currentRPM, currentGear - 1, speed, fuel);
+
+                // Update lap comparison data
+                if (lapTiming != null)
+                {
+                    telemetryServer.UpdateLapData(lapTiming.CompletedLaps, tireData);
+                }
             }
             else
             {
@@ -1108,7 +1108,7 @@ static void RunAdaptiveMonitor(ConfigManager configManager, ShiftPointConfig con
 }
 
 // Performance Learning monitor mode - AI-driven shift optimization based on lap times
-static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer, CommandLineArgs? cmdArgs)
+static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPointConfig config, TelemetryServer? telemetryServer)
 {
     // Initialize all required engines
     using var audioEngine = new AudioEngine();
@@ -1188,18 +1188,9 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
     }
     Console.WriteLine();
 
-    // Audio profile selection (skip if provided via command-line)
-    AudioEngine.AudioProfile audioProfile;
-    if (cmdArgs != null)
-    {
-        audioProfile = cmdArgs.EnduranceSound ? AudioEngine.AudioProfile.Endurance : AudioEngine.AudioProfile.Normal;
-        audioEngine.SetAudioProfile(audioProfile);
-    }
-    else
-    {
-        audioProfile = SelectAudioProfileWithPreview(audioEngine, selectedMode);
-        audioEngine.SetAudioProfile(audioProfile);
-    }
+    // Audio profile selection
+    var audioProfile = SelectAudioProfileWithPreview(audioEngine, selectedMode);
+    audioEngine.SetAudioProfile(audioProfile);
     Console.WriteLine();
 
     // Main loop state
@@ -1363,6 +1354,12 @@ static void RunPerformanceLearningMonitor(ConfigManager configManager, ShiftPoin
                 var physics = accMemory.ReadPhysicsStruct();
                 float fuel = physics?.Fuel ?? 0f;
                 telemetryServer.UpdateTelemetry(tireData, currentRPM, currentGear - 1, speed, fuel);
+
+                // Update lap comparison data
+                if (lapTiming != null)
+                {
+                    telemetryServer.UpdateLapData(lapTiming.CompletedLaps, tireData);
+                }
             }
             else
             {
