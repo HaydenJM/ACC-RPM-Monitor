@@ -1,72 +1,20 @@
 using System.Windows;
 using System.Windows.Input;
 using WpfColor = System.Windows.Media.Color;
-using WpfColors = System.Windows.Media.Colors;
-using ScottPlot;
-using ScottPlot.Plottables;
 
 namespace ACCRPMMonitor;
 
 /// <summary>
-/// WPF window for displaying real-time ACC telemetry data
+/// WPF window for displaying real-time ACC tire telemetry data
 /// </summary>
 public partial class TelemetryWindow : Window
 {
-    private const int MaxDataPoints = 300; // Keep last 300 data points (5 minutes at 1Hz)
-
-    // ScottPlot data streamers for live updates
-    private DataStreamer? _rpmPlot;
-    private DataStreamer? _gearPlot;
+    private LapTireData? _lapStartData;
+    private LapTireData? _lapEndData;
 
     public TelemetryWindow()
     {
         InitializeComponent();
-        InitializeCharts();
-    }
-
-    private void InitializeCharts()
-    {
-        // Configure RPM chart
-        TireTrendsPlot.Plot.Clear();
-        TireTrendsPlot.Plot.Axes.Left.Label.Text = "RPM";
-        TireTrendsPlot.Plot.Axes.Bottom.Label.Text = "Time (s)";
-        TireTrendsPlot.Plot.FigureBackground.Color = Colors.Transparent;
-        TireTrendsPlot.Plot.DataBackground.Color = Color.FromHex("#1A1A1A");
-        TireTrendsPlot.Plot.Axes.Color(Color.FromHex("#AAAAAA"));
-        TireTrendsPlot.Plot.Grid.MajorLineColor = Color.FromHex("#333333");
-
-        _rpmPlot = TireTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
-        _rpmPlot.Color = Color.FromHex("#FF0000");
-        _rpmPlot.LineWidth = 2;
-        _rpmPlot.LegendText = "RPM";
-
-        TireTrendsPlot.Plot.ShowLegend(Alignment.UpperLeft);
-        TireTrendsPlot.Plot.Legend.BackgroundColor = Color.FromHex("#CC000000");
-        TireTrendsPlot.Plot.Legend.FontColor = Colors.White;
-        TireTrendsPlot.Plot.Legend.OutlineColor = Colors.Transparent;
-
-        // Configure gear chart (step style)
-        PerformanceTrendsPlot.Plot.Clear();
-        PerformanceTrendsPlot.Plot.Axes.Left.Label.Text = "Gear";
-        PerformanceTrendsPlot.Plot.Axes.Bottom.Label.Text = "Time (s)";
-        PerformanceTrendsPlot.Plot.FigureBackground.Color = Colors.Transparent;
-        PerformanceTrendsPlot.Plot.DataBackground.Color = Color.FromHex("#1A1A1A");
-        PerformanceTrendsPlot.Plot.Axes.Color(Color.FromHex("#AAAAAA"));
-        PerformanceTrendsPlot.Plot.Grid.MajorLineColor = Color.FromHex("#333333");
-
-        _gearPlot = PerformanceTrendsPlot.Plot.Add.DataStreamer(MaxDataPoints);
-        _gearPlot.Color = Color.FromHex("#FFFF00");
-        _gearPlot.LineWidth = 2;
-        _gearPlot.LegendText = "Gear";
-        _gearPlot.LineStyle.Pattern = LinePattern.Solid; // Step-style will be achieved by data
-
-        PerformanceTrendsPlot.Plot.ShowLegend(Alignment.UpperLeft);
-        PerformanceTrendsPlot.Plot.Legend.BackgroundColor = Color.FromHex("#CC000000");
-        PerformanceTrendsPlot.Plot.Legend.FontColor = Colors.White;
-        PerformanceTrendsPlot.Plot.Legend.OutlineColor = Colors.Transparent;
-
-        TireTrendsPlot.Refresh();
-        PerformanceTrendsPlot.Refresh();
     }
 
     /// <summary>
@@ -99,12 +47,6 @@ public partial class TelemetryWindow : Window
             return;
         }
 
-        // Update vehicle info
-        SpeedText.Text = $"{snapshot.SpeedKmh:F1} km/h";
-        RpmText.Text = snapshot.RPM.ToString();
-        GearText.Text = snapshot.Gear == 0 ? "N" : snapshot.Gear.ToString();
-        FuelText.Text = $"{snapshot.Fuel:F1} L";
-
         // Update tire pressures
         PressureFLText.Text = $"{snapshot.TirePressureFL:F1}";
         PressureFRText.Text = $"{snapshot.TirePressureFR:F1}";
@@ -125,28 +67,56 @@ public partial class TelemetryWindow : Window
         UpdateTemperatureColor(TempRLText, snapshot.TireTempRL);
         UpdateTemperatureColor(TempRRText, snapshot.TireTempRR);
 
-        // Color-code tire pressures (typical range ~27-29 PSI)
+        // Color-code tire pressures (typical range ~26-28 PSI)
         UpdatePressureColor(PressureFLText, snapshot.TirePressureFL);
         UpdatePressureColor(PressureFRText, snapshot.TirePressureFR);
         UpdatePressureColor(PressureRLText, snapshot.TirePressureRL);
         UpdatePressureColor(PressureRRText, snapshot.TirePressureRR);
-
-        // Update charts
-        UpdateCharts(snapshot);
     }
 
-    private void UpdateCharts(TelemetrySnapshot snapshot)
+    /// <summary>
+    /// Updates lap comparison data (before/after/delta)
+    /// </summary>
+    public void UpdateLapComparison(LapTireData? lapStart, LapTireData? lapEnd)
     {
-        // Add new data points to streamers
-        _rpmPlot?.Add(snapshot.RPM);
-        _gearPlot?.Add(snapshot.Gear);
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => UpdateLapComparison(lapStart, lapEnd));
+            return;
+        }
 
-        // Refresh charts
-        TireTrendsPlot.Plot.Axes.AutoScale();
-        TireTrendsPlot.Refresh();
+        _lapStartData = lapStart;
+        _lapEndData = lapEnd;
 
-        PerformanceTrendsPlot.Plot.Axes.AutoScale();
-        PerformanceTrendsPlot.Refresh();
+        if (lapStart != null && lapEnd != null)
+        {
+            // Show lap comparison section
+            LapComparisonBorder.Visibility = Visibility.Visible;
+
+            // Update lap start values
+            LapStartPressure.Text = $"Pressure: {lapStart.AvgPressure:F1} PSI";
+            LapStartTemp.Text = $"Temp: {lapStart.AvgTemp:F1} °C";
+
+            // Update lap end values
+            LapEndPressure.Text = $"Pressure: {lapEnd.AvgPressure:F1} PSI";
+            LapEndTemp.Text = $"Temp: {lapEnd.AvgTemp:F1} °C";
+
+            // Calculate and display deltas
+            float pressureDelta = lapEnd.AvgPressure - lapStart.AvgPressure;
+            float tempDelta = lapEnd.AvgTemp - lapStart.AvgTemp;
+
+            LapDeltaPressure.Text = $"Pressure: {(pressureDelta >= 0 ? "+" : "")}{pressureDelta:F1} PSI";
+            LapDeltaTemp.Text = $"Temp: {(tempDelta >= 0 ? "+" : "")}{tempDelta:F1} °C";
+
+            // Color code deltas
+            UpdateDeltaColor(LapDeltaPressure, pressureDelta);
+            UpdateDeltaColor(LapDeltaTemp, tempDelta);
+        }
+        else
+        {
+            // Hide lap comparison if no data
+            LapComparisonBorder.Visibility = Visibility.Collapsed;
+        }
     }
 
     /// <summary>
@@ -191,17 +161,17 @@ public partial class TelemetryWindow : Window
             // Too low - Red
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 100, 100));
         }
-        else if (pressure >= 23 && pressure < 25)
+        else if (pressure >= 26 && pressure < 27)
         {
             // Low - Yellow
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 255, 100));
         }
-        else if (pressure >= 26 && pressure <= 28)
+        else if (pressure >= 27 && pressure <= 28)
         {
             // Optimal - Green
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(100, 255, 100));
         }
-        else if (pressure > 29 && pressure <= 30)
+        else if (pressure > 28 && pressure <= 29)
         {
             // High - Yellow
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 255, 100));
@@ -210,6 +180,28 @@ public partial class TelemetryWindow : Window
         {
             // Too high - Red
             textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 100, 100));
+        }
+    }
+
+    /// <summary>
+    /// Color-codes delta values
+    /// </summary>
+    private void UpdateDeltaColor(System.Windows.Controls.TextBlock textBlock, float delta)
+    {
+        if (delta > 0)
+        {
+            // Positive delta - Red
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 100, 100));
+        }
+        else if (delta < 0)
+        {
+            // Negative delta - Cyan
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(100, 200, 255));
+        }
+        else
+        {
+            // No change - White
+            textBlock.Foreground = new System.Windows.Media.SolidColorBrush(WpfColor.FromRgb(255, 255, 255));
         }
     }
 
@@ -225,11 +217,6 @@ public partial class TelemetryWindow : Window
         }
 
         // Reset all displays to default values
-        SpeedText.Text = "0";
-        RpmText.Text = "0";
-        GearText.Text = "N";
-        FuelText.Text = "0";
-
         PressureFLText.Text = "0.0";
         PressureFRText.Text = "0.0";
         PressureRLText.Text = "0.0";
@@ -241,5 +228,17 @@ public partial class TelemetryWindow : Window
         TempRLText.Text = "0.0";
         TempRRText.Text = "0.0";
         TempAvgText.Text = "0.0";
+
+        // Hide lap comparison
+        LapComparisonBorder.Visibility = Visibility.Collapsed;
     }
+}
+
+/// <summary>
+/// Lap tire data for comparison
+/// </summary>
+public class LapTireData
+{
+    public float AvgPressure { get; set; }
+    public float AvgTemp { get; set; }
 }

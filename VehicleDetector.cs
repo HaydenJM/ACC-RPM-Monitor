@@ -69,6 +69,48 @@ public class VehicleDetector : IDisposable
         }
     }
 
+    // Reads the current track name from static memory
+    public string? GetTrackName()
+    {
+        if (_staticMMF == null)
+            return null;
+
+        try
+        {
+            using var accessor = _staticMMF.CreateViewAccessor(0, 2048, MemoryMappedFileAccess.Read);
+
+            // Read track name from static memory
+            // ACC Static Memory Structure:
+            // SMVersion (wchar_t[15]) = 30 bytes
+            // ACVersion (wchar_t[15]) = 30 bytes
+            // NumberOfSessions (int) = 4 bytes
+            // NumCars (int) = 4 bytes
+            // CarModel (wchar_t[33]) = 66 bytes
+            // Track (wchar_t[33]) = 66 bytes at offset 134
+
+            byte[] trackBytes = new byte[66]; // wchar_t[33] = 33 * 2 bytes
+            accessor.ReadArray(134, trackBytes, 0, 66);
+
+            // Convert from Unicode (wide char)
+            string track = Encoding.Unicode.GetString(trackBytes).Trim('\0');
+
+            if (string.IsNullOrWhiteSpace(track))
+                return null;
+
+            // Sanitize for use as filename
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                track = track.Replace(c, '_');
+            }
+
+            return track;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Track detection error: {ex.Message}");
+            return null;
+        }
+    }
 
     public void Dispose()
     {

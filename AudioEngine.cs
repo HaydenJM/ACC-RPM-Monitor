@@ -3,7 +3,8 @@ using NAudio.Wave;
 namespace ACCRPMMonitor;
 
 /// <summary>
-/// Audio engine with mode-specific feedback strategies
+/// Audio engine for shift indication - soft chirping design with adaptive tolerance
+/// Maximizes silence while providing precise shift timing with reaction time compensation
 /// </summary>
 public class AudioEngine : IDisposable
 {
@@ -11,154 +12,139 @@ public class AudioEngine : IDisposable
     private readonly TriangleWaveProvider _waveProvider;
     private bool _isPlaying;
 
-    // RPM rate tracking
+    // RPM tracking for rate calculation and prediction
     private readonly Queue<(int rpm, DateTime timestamp)> _rpmHistory = new();
-    private const int RPMHistoryWindowMs = 200; // Track last 200ms of RPM changes
+    private const int RPMHistoryWindowMs = 250;
 
-    // Downshift mute tracking
-    private DateTime _lastDownshiftMuteTime = DateTime.MinValue;
+    // Downshift muting
+    private DateTime _lastDownshiftTime = DateTime.MinValue;
     private int _lastGear = 0;
-    private const int DownshiftMuteDurationMs = 200; // Mute audio for 200ms after downshift
+    private const int DownshiftMuteDurationMs = 200;
 
-    // Audio mode
+    // Human reaction time compensation (75ms pro, 100ms default, 125ms average)
+    private int _reactionTimeMs = 100;
+
+    // Adaptive tolerance system - learns driver consistency (Feedback mode only)
+    private readonly Queue<bool> _shiftSuccessHistory = new(); // Last 20 shifts: true = within tolerance
+    private const int ShiftHistorySize = 20;
+    private int _adaptiveTolerance = 175; // Starts at 175, adapts down to 100 based on consistency
+
+    // Audio modes
     public enum AudioMode
     {
-        Standard,                  // Progressive beeping (slow → fast → solid)
-        PerformanceLearning,       // Pitch-based guidance (low/high pitch for shift recommendation)
-        FeedbackOptimization       // Post-shift feedback: two short beeps after shift (Early/OnTime/Late)
+        Standard,              // Soft chirps with alert pitch
+        PerformanceLearning,   // Occasional chirps for guidance
+        FeedbackOptimization   // Post-shift feedback only
     }
 
-    // Audio profile for Performance Learning mode
     public enum AudioProfile
     {
-        Normal,      // Standard tone profiles optimized for responsiveness
-        Endurance    // Low-fatigue tone profiles for extended sessions
+        Normal,      // Alert responsiveness
+        Endurance    // Gentle for long sessions
     }
 
     private AudioMode _currentMode = AudioMode.Standard;
     private AudioProfile _currentProfile = AudioProfile.Normal;
-    private int _recommendedShiftRPM = 0; // Used in Performance Learning mode
+    private int _recommendedShiftRPM = 0;
 
-    // Tone profiles for Performance Learning mode
+    // Tone profiles - short chirps designed for minimal intrusion
     private class ToneProfile
     {
         public float Frequency { get; set; }
         public int DurationMs { get; set; }
         public int AttackMs { get; set; }
         public int DecayMs { get; set; }
-        public float DecayLevel { get; set; } // 0.0 to 1.0
-        public float RelativeDbLevel { get; set; } // Amplitude multiplier
-        public string WaveformType { get; set; } = "triangle"; // "sine", "triangle", "rounded"
-        public float GlideFrequencyDelta { get; set; } = 0f; // Frequency change for glide (Hz)
-        public int GlideDurationMs { get; set; } = 0; // Duration of glide effect (ms)
+        public float DecayLevel { get; set; }
+        public float RelativeDbLevel { get; set; }
+        public string WaveformType { get; set; } = "triangle";
+        public float GlideFrequencyDelta { get; set; } = 0f;
+        public int GlideDurationMs { get; set; } = 0;
     }
 
-    // Performance Learning tone profiles: Too Early, Optimal, Too Late
+    // Normal profile - alert chirps (Performance/Feedback modes)
     private readonly ToneProfile _toneTooEarly = new()
     {
-        Frequency = 950f,
-        DurationMs = 130,
-        AttackMs = 5,
-        DecayMs = 120,
-        DecayLevel = 0.60f,
-        RelativeDbLevel = 0.707f, // -3dB = 0.707 amplitude
-        WaveformType = "rounded",
-        GlideFrequencyDelta = -10f, // -10 Hz glide (descending)
-        GlideDurationMs = 100 // Over 100 ms
+        Frequency = 1050f, DurationMs = 60, AttackMs = 3, DecayMs = 55,
+        DecayLevel = 0.45f, RelativeDbLevel = 0.707f, WaveformType = "rounded",
+        GlideFrequencyDelta = -15f, GlideDurationMs = 50
     };
 
     private readonly ToneProfile _toneOptimal = new()
     {
-        Frequency = 600f,
-        DurationMs = 140,
-        AttackMs = 5,
-        DecayMs = 135,
-        DecayLevel = 0.55f,
-        RelativeDbLevel = 1.0f, // 0dB = reference level
-        WaveformType = "sine"
+        Frequency = 850f, DurationMs = 65, AttackMs = 3, DecayMs = 60,
+        DecayLevel = 0.50f, RelativeDbLevel = 0.85f, WaveformType = "sine"
     };
 
     private readonly ToneProfile _toneTooLate = new()
     {
-        Frequency = 400f,
-        DurationMs = 150,
-        AttackMs = 5,
-        DecayMs = 145,
-        DecayLevel = 0.50f,
-        RelativeDbLevel = 0.794f, // -2dB = 0.794 amplitude
-        WaveformType = "triangle"
+        Frequency = 550f, DurationMs = 70, AttackMs = 3, DecayMs = 65,
+        DecayLevel = 0.40f, RelativeDbLevel = 0.707f, WaveformType = "sine"
     };
 
-    // Endurance tone profiles: Too Early, Optimal, Too Late
-    // Lower-fatigue alternative for extended sessions
+    // Standard mode chirps - alert pitch, soft delivery
+    private readonly ToneProfile _toneStandardFar = new()
+    {
+        Frequency = 800f, DurationMs = 50, AttackMs = 3, DecayMs = 45,
+        DecayLevel = 0.40f, RelativeDbLevel = 0.6f, WaveformType = "sine"
+    };
+
+    private readonly ToneProfile _toneStandardApproaching = new()
+    {
+        Frequency = 950f, DurationMs = 55, AttackMs = 3, DecayMs = 50,
+        DecayLevel = 0.45f, RelativeDbLevel = 0.75f, WaveformType = "sine"
+    };
+
+    private readonly ToneProfile _toneStandardShiftNow = new()
+    {
+        Frequency = 1100f, DurationMs = 60, AttackMs = 3, DecayMs = 55,
+        DecayLevel = 0.50f, RelativeDbLevel = 0.85f, WaveformType = "rounded",
+        GlideFrequencyDelta = 30f, GlideDurationMs = 50
+    };
+
+    // Endurance profile - gentle chirps for long sessions
     private readonly ToneProfile _toneEnduranceTooEarly = new()
     {
-        Frequency = 650f,
-        DurationMs = 110,
-        AttackMs = 8,
-        DecayMs = 130,
-        DecayLevel = 0.57f,
-        RelativeDbLevel = 0.707f, // -3dB
-        WaveformType = "sine",
-        GlideFrequencyDelta = -10f, // -10 Hz glide (descending)
-        GlideDurationMs = 60 // Over 60 ms
+        Frequency = 700f, DurationMs = 55, AttackMs = 5, DecayMs = 50,
+        DecayLevel = 0.40f, RelativeDbLevel = 0.6f, WaveformType = "sine",
+        GlideFrequencyDelta = -10f, GlideDurationMs = 45
     };
 
     private readonly ToneProfile _toneEnduranceOptimal = new()
     {
-        Frequency = 500f,
-        DurationMs = 130,
-        AttackMs = 10,
-        DecayMs = 100,
-        DecayLevel = 0.52f,
-        RelativeDbLevel = 1.0f, // 0dB
-        WaveformType = "sine"
+        Frequency = 600f, DurationMs = 60, AttackMs = 5, DecayMs = 55,
+        DecayLevel = 0.45f, RelativeDbLevel = 0.707f, WaveformType = "sine"
     };
 
     private readonly ToneProfile _toneEnduranceTooLate = new()
     {
-        Frequency = 400f,
-        DurationMs = 140,
-        AttackMs = 8,
-        DecayMs = 160,
-        DecayLevel = 0.48f,
-        RelativeDbLevel = 0.707f, // -3dB
-        WaveformType = "sine",
-        GlideFrequencyDelta = -15f, // -15 Hz glide (descending)
-        GlideDurationMs = 120 // Over 120 ms
+        Frequency = 450f, DurationMs = 65, AttackMs = 5, DecayMs = 60,
+        DecayLevel = 0.40f, RelativeDbLevel = 0.6f, WaveformType = "sine"
     };
 
-    // Track performance learning audio state
+    // Audio tracking
     private DateTime _performanceAudioStartTime = DateTime.MinValue;
-    private int _performanceAudioStartRPM = 0;
+    private DateTime _standardToneEndTime = DateTime.MinValue;
+    private int _lastProximityZone = -1;
     private float _lastRPMRate = 0f;
 
-    // Post-shift evaluation model state
-    private int _shiftFromGear = 0; // Gear we shifted FROM (for tracking)
-    private int _shiftToGear = 0; // Gear we shifted TO
-    private int _shiftFromRPM = 0; // RPM at moment of gear change
-    private int _recommendedShiftRPMAtShift = 0; // Recommended RPM for the gear we shifted from
-
-    // Shift detection state machine
-    private enum ShiftEvaluationState
+    // Post-shift evaluation state machine
+    private enum ShiftEvalState
     {
-        Idle,                    // No shift in progress
-        PredictionWindow,        // 100-150ms before predicted shift (optional)
-        DetectingGearChange,     // Waiting for telemetry to confirm gear change
-        StabilizingNewGear,      // 200ms stabilization window after gear confirmed
-        EvaluatingShiftQuality,  // Computing error and playing feedback tone
-        LockoutPeriod            // 400-500ms lockout to prevent overlaps
+        Idle, DetectingGearChange, StabilizingNewGear,
+        EvaluatingShiftQuality, LockoutPeriod
     }
 
-    private ShiftEvaluationState _shiftEvalState = ShiftEvaluationState.Idle;
+    private ShiftEvalState _shiftEvalState = ShiftEvalState.Idle;
     private DateTime _shiftStateChangeTime = DateTime.MinValue;
-    private int _lastGearForShiftDetection = 0; // Track for shift detection
+    private int _lastGearForShiftDetection = 0;
+    private int _shiftFromGear = 0;
+    private int _shiftToGear = 0;
+    private int _shiftFromRPM = 0;
+    private int _recommendedShiftRPMAtShift = 0;
 
-    // Timing constants for post-shift evaluation
-    private const int PreShiftPredictionMs = 125; // 100-150ms pre-shift cue (mid-range)
-    private const int GearStabilizationMs = 200; // Confirm new gear stable for 200ms
-    private const int ShiftLockoutMs = 450; // 400-500ms lockout (mid-range)
-    private const int ShiftDetectionTimeoutMs = 500; // Max time to detect gear change after prediction
+    private const int GearStabilizationMs = 200;
+    private const int ShiftLockoutMs = 450;
+    private const int ShiftDetectionTimeoutMs = 500;
 
     public AudioEngine()
     {
@@ -167,44 +153,23 @@ public class AudioEngine : IDisposable
         _waveOut.Init(_waveProvider);
     }
 
-    /// <summary>
-    /// Sets the audio mode for different monitoring modes.
-    /// </summary>
-    public void SetMode(AudioMode mode)
-    {
-        _currentMode = mode;
-    }
+    public void SetMode(AudioMode mode) => _currentMode = mode;
+    public void SetAudioProfile(AudioProfile profile) => _currentProfile = profile;
+    public void SetRecommendedShiftRPM(int rpm) => _recommendedShiftRPM = rpm;
+    public void SetReactionTimeMs(int ms) => _reactionTimeMs = Math.Clamp(ms, 50, 200);
+    public int GetAdaptiveTolerance() => _adaptiveTolerance;
 
     /// <summary>
-    /// Sets the audio profile (Normal or Endurance) for Performance Learning mode.
-    /// </summary>
-    public void SetAudioProfile(AudioProfile profile)
-    {
-        _currentProfile = profile;
-    }
-
-    /// <summary>
-    /// Sets the recommended shift RPM for Performance Learning mode.
-    /// </summary>
-    public void SetRecommendedShiftRPM(int rpm)
-    {
-        _recommendedShiftRPM = rpm;
-    }
-
-    /// <summary>
-    /// Updates audio based on current mode.
+    /// Main update - routes to appropriate audio mode
     /// </summary>
     public void UpdateRPM(int currentRPM, int threshold, int currentGear)
     {
-        // Detect downshift and reset mute timer
+        // Detect downshift and mute briefly
         if (currentGear < _lastGear)
-        {
-            _lastDownshiftMuteTime = DateTime.Now;
-        }
+            _lastDownshiftTime = DateTime.Now;
         _lastGear = currentGear;
 
-        // Mute audio for 200ms after downshift
-        if ((DateTime.Now - _lastDownshiftMuteTime).TotalMilliseconds < DownshiftMuteDurationMs)
+        if ((DateTime.Now - _lastDownshiftTime).TotalMilliseconds < DownshiftMuteDurationMs)
         {
             Stop();
             return;
@@ -217,130 +182,137 @@ public class AudioEngine : IDisposable
             return;
         }
 
-        // Hard-coded minimum RPM threshold - never play audio below 6000 RPM
+        // Never play below 6000 RPM
         if (currentRPM < 6000)
         {
             Stop();
             return;
         }
 
-        // Track RPM history for rate calculation
+        // Track RPM history
         DateTime now = DateTime.Now;
         _rpmHistory.Enqueue((currentRPM, now));
 
-        // Remove old entries outside the window
         while (_rpmHistory.Count > 0 && (now - _rpmHistory.Peek().timestamp).TotalMilliseconds > RPMHistoryWindowMs)
-        {
             _rpmHistory.Dequeue();
-        }
 
-        // Route to appropriate audio mode
+        // Route to mode
         if (_currentMode == AudioMode.FeedbackOptimization)
-        {
             UpdateFeedbackOptimizationAudio(currentRPM, threshold, currentGear);
-        }
         else if (_currentMode == AudioMode.PerformanceLearning)
-        {
             UpdatePerformanceLearningAudio(currentRPM, threshold, currentGear);
-        }
         else
-        {
             UpdateStandardAudio(currentRPM, threshold, currentGear);
-        }
     }
 
     /// <summary>
-    /// Standard/Adaptive mode: Progressive beeping that accelerates as RPM approaches threshold.
-    /// Slow beeps → fast beeps → solid tone at threshold.
-    /// Uses a single consistent frequency across all gears.
+    /// Standard mode: Soft chirping with alert pitch
+    ///
+    /// CHIRP TIMING (maximizes silence):
+    /// Far (0-50%): Single chirp every 1200ms
+    /// Approaching (50-80%): Single chirp every 800ms
+    /// Shift zone (80-100%): Single chirp every 400ms
+    ///
+    /// Goal: Occasional reminders, not constant sound
     /// </summary>
     private void UpdateStandardAudio(int currentRPM, int threshold, int currentGear)
     {
-        // Calculate RPM rate and dynamic warning distance
         float rpmRate = CalculateRPMRate();
-        int warningDistance = CalculateDynamicWarningDistance(rpmRate);
+        int warningDistance = CalculatePredictiveWarningDistance(rpmRate, _reactionTimeMs);
         int rpmFromThreshold = currentRPM - threshold;
 
-        // Use consistent frequency for all gears (600Hz)
-        float frequency = 600f;
-
-        // Only play when within warning distance
         if (rpmFromThreshold >= -warningDistance)
         {
-            _waveProvider.SetFrequency(frequency);
+            float proximityRatio = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
 
-            // Progressive beeping based on proximity to threshold
-            if (rpmFromThreshold >= 0)
+            // Determine chirp and timing - focus on LONG GAPS
+            ToneProfile chirp;
+            int gapMs;
+            int proximityZone;
+
+            if (proximityRatio < 0.50f)
             {
-                // At or above threshold - solid tone
-                _waveProvider.SetBeeping(false, 0, 0);
+                // Far zone: single chirp, very long gap (maximize silence)
+                chirp = _toneStandardFar;
+                gapMs = 1200; // 1.2 seconds between chirps
+                proximityZone = 0;
+            }
+            else if (proximityRatio < 0.80f)
+            {
+                // Approaching: single chirp, medium gap
+                chirp = _toneStandardApproaching;
+                gapMs = 800; // 0.8 seconds
+                proximityZone = 1;
             }
             else
             {
-                // Below threshold - progressive beeping
-                // Calculate beep rate based on proximity (0.0 = far, 1.0 = at threshold)
-                float proximityRatio = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
-
-                // Beep timing: Far = 500ms on/500ms off, Close = 50ms on/50ms off, At threshold = solid
-                int maxBeepMs = 500;
-                int minBeepMs = 50;
-
-                int beepOnMs = (int)(maxBeepMs - (proximityRatio * (maxBeepMs - minBeepMs)));
-                int beepOffMs = beepOnMs; // Keep on/off equal for rhythm
-
-                _waveProvider.SetBeeping(true, beepOnMs, beepOffMs);
+                // Shift zone: single chirp, shorter gap
+                chirp = _toneStandardShiftNow;
+                gapMs = 400; // 0.4 seconds
+                proximityZone = 2;
             }
+
+            DateTime now = DateTime.Now;
+            bool shouldChirp = false;
 
             if (!_isPlaying)
             {
-                _waveOut.Play();
-                _isPlaying = true;
+                shouldChirp = true;
+            }
+            else if (_standardToneEndTime != DateTime.MinValue && now >= _standardToneEndTime)
+            {
+                // Chirp finished, check if gap elapsed
+                TimeSpan timeSinceEnd = now - _standardToneEndTime;
+                if (timeSinceEnd.TotalMilliseconds >= gapMs)
+                    shouldChirp = true;
+            }
+            else if (_lastProximityZone != proximityZone && proximityZone > _lastProximityZone)
+            {
+                // Moved to more urgent zone - chirp immediately
+                shouldChirp = true;
+            }
+
+            if (shouldChirp)
+            {
+                PlayTone(chirp);
+                _standardToneEndTime = now.AddMilliseconds(chirp.DurationMs);
+                _lastProximityZone = proximityZone;
             }
         }
         else
         {
             Stop();
+            _standardToneEndTime = DateTime.MinValue;
+            _lastProximityZone = -1;
         }
     }
 
     /// <summary>
-    /// Performance Learning mode: Tone-based guidance with distinct audio profiles.
-    /// - Too Early (950 Hz): Shift too late, needs earlier action
-    /// - Optimal (600 Hz): Within optimal range (±175 RPM)
-    /// - Too Late (400 Hz): Shift too early, needs later action
+    /// Performance Learning mode: Occasional chirps for real-time guidance
+    /// Uses fixed 175 RPM tolerance (no adaptive learning in this mode)
     /// </summary>
     private void UpdatePerformanceLearningAudio(int currentRPM, int threshold, int currentGear)
     {
-        int warningDistance = 300; // Fixed distance for performance mode
+        int warningDistance = 300;
         int rpmFromThreshold = currentRPM - threshold;
 
-        // Calculate RPM rate for intelligent audio stopping
         _lastRPMRate = CalculateRPMRate();
 
-        // Only play when within warning distance
+        // Only chirp when close to recommended shift point
         if (rpmFromThreshold >= -warningDistance && _recommendedShiftRPM > 0)
         {
-            // Determine which tone to play based on RPM vs recommended shift point and audio profile
-            ToneProfile toneToPlay;
+            // Use fixed 175 RPM tolerance
+            ToneProfile chirp;
 
             if (currentRPM < _recommendedShiftRPM - 175)
-            {
-                // Shifting too early - use "Too Early" tone (high pitch to indicate shift later)
-                toneToPlay = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
-            }
+                chirp = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
             else if (currentRPM > _recommendedShiftRPM + 175)
-            {
-                // Shifting too late - use "Too Late" tone (low pitch to indicate shift earlier)
-                toneToPlay = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooLate : _toneTooLate;
-            }
+                chirp = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooLate : _toneTooLate;
             else
-            {
-                // Within optimal range - use "Optimal" tone (mid pitch)
-                toneToPlay = _currentProfile == AudioProfile.Endurance ? _toneEnduranceOptimal : _toneOptimal;
-            }
+                chirp = _currentProfile == AudioProfile.Endurance ? _toneEnduranceOptimal : _toneOptimal;
 
-            // Check if audio should stop due to RPM rise rate dropping
-            const float RPMRateThresholdToStop = 50f; // RPM/sec below which we stop audio
+            // Stop if RPM rate drops (coasting/braking)
+            const float RPMRateThresholdToStop = 50f;
             if (_lastRPMRate < RPMRateThresholdToStop)
             {
                 Stop();
@@ -348,17 +320,15 @@ public class AudioEngine : IDisposable
                 return;
             }
 
-            // Start new tone or continue current one
+            // Single chirp with long gap (1 second)
             if (!_isPlaying || _performanceAudioStartTime == DateTime.MinValue)
             {
                 _performanceAudioStartTime = DateTime.Now;
-                _performanceAudioStartRPM = currentRPM;
-                PlayTone(toneToPlay);
+                PlayTone(chirp);
             }
-            // Check if current tone duration has expired
-            else if ((DateTime.Now - _performanceAudioStartTime).TotalMilliseconds >= toneToPlay.DurationMs)
+            else if ((DateTime.Now - _performanceAudioStartTime).TotalMilliseconds >= chirp.DurationMs + 1000)
             {
-                // Tone finished, stop audio and wait for next trigger
+                // Chirp + 1 second gap elapsed, allow next chirp
                 Stop();
                 _performanceAudioStartTime = DateTime.MinValue;
             }
@@ -371,156 +341,183 @@ public class AudioEngine : IDisposable
     }
 
     /// <summary>
-    /// Feedback-Based Optimization mode: Post-shift evaluation with audio feedback.
+    /// Feedback Optimization mode: SILENT during driving, gentle post-shift feedback only
+    /// Uses adaptive tolerance based on driver consistency
     ///
-    /// State flow:
-    /// 1. Idle - Normal driving, SILENT monitoring
-    /// 2. DetectingGearChange - Gear change detected via telemetry
-    /// 3. StabilizingNewGear - Wait 200ms for new gear to stabilize
-    /// 4. EvaluatingShiftQuality - Compute error and play feedback tone (if needed)
-    /// 5. LockoutPeriod - 400-500ms lockout to prevent overlaps
-    ///
-    /// Feedback tones indicate shift quality based on error:
-    /// - High Pitch (950 Hz) = Shifted too EARLY (before optimal, > -175 RPM)
-    /// - NO SOUND = Shifted at OPTIMAL time (within ±175 RPM) ✓ CORRECT!
-    /// - Low Pitch (400 Hz) = Shifted too LATE (after optimal, > +175 RPM)
-    ///
-    /// Key behavior: SILENT when shift is good, audio feedback only for corrections needed.
+    /// ADAPTIVE TOLERANCE LEARNING (only in Feedback mode):
+    /// Tracks last 20 shifts and counts successes (shifts within current tolerance)
+    /// - Starts at 175 RPM tolerance
+    /// - If 80%+ shifts within 175 RPM window → reduces to 125 RPM
+    /// - If 80%+ shifts within 125 RPM window → reduces to 100 RPM
+    /// - If shift outside tolerance → immediately bounces back to wider tolerance
+    /// - Only learns from correct shifts (when optimal tone would play)
     /// </summary>
     private void UpdateFeedbackOptimizationAudio(int currentRPM, int threshold, int currentGear)
     {
         DateTime now = DateTime.Now;
         double elapsedMs = (now - _shiftStateChangeTime).TotalMilliseconds;
 
-        // State machine for post-shift evaluation
         switch (_shiftEvalState)
         {
-            case ShiftEvaluationState.Idle:
-                // Monitor for upshift from gears 1-5 (skip 6th gear+)
+            case ShiftEvalState.Idle:
                 if (currentGear > _lastGearForShiftDetection && _lastGearForShiftDetection > 0 && _lastGearForShiftDetection < 6)
                 {
-                    // Upshift detected! Capture shift data immediately
-                    // IMPORTANT: We're in the NEW gear now, but currentRPM hasn't updated yet from the last frame
-                    // So we need to use the RPM history to get the pre-shift RPM
                     _shiftFromGear = _lastGearForShiftDetection;
                     _shiftToGear = currentGear;
 
-                    // Get the RPM from before the gear change (use RPM history if available)
                     if (_rpmHistory.Count > 0)
-                    {
-                        // Use the most recent RPM from history (before this frame)
                         _shiftFromRPM = _rpmHistory.Last().rpm;
-                    }
                     else
-                    {
-                        // Fallback to current RPM if no history
                         _shiftFromRPM = currentRPM;
-                    }
 
                     _recommendedShiftRPMAtShift = _recommendedShiftRPM;
-
-                    _shiftEvalState = ShiftEvaluationState.DetectingGearChange;
+                    _shiftEvalState = ShiftEvalState.DetectingGearChange;
                     _shiftStateChangeTime = now;
                 }
                 break;
 
-            case ShiftEvaluationState.DetectingGearChange:
-                // Wait for gear change to be fully confirmed via telemetry
-                // Once we see the new gear number confirmed, move to stabilization
+            case ShiftEvalState.DetectingGearChange:
                 if (currentGear == _shiftToGear)
                 {
-                    _shiftEvalState = ShiftEvaluationState.StabilizingNewGear;
+                    _shiftEvalState = ShiftEvalState.StabilizingNewGear;
                     _shiftStateChangeTime = now;
-                    // Don't update _shiftFromRPM here - we already captured it in Idle state
                 }
-                // Timeout if gear change takes too long
                 else if (elapsedMs > ShiftDetectionTimeoutMs)
-                {
-                    _shiftEvalState = ShiftEvaluationState.Idle;
-                }
+                    _shiftEvalState = ShiftEvalState.Idle;
                 break;
 
-            case ShiftEvaluationState.StabilizingNewGear:
-                // Wait 200ms for new gear to stabilize before evaluating
+            case ShiftEvalState.StabilizingNewGear:
                 if (elapsedMs >= GearStabilizationMs)
                 {
-                    _shiftEvalState = ShiftEvaluationState.EvaluatingShiftQuality;
+                    _shiftEvalState = ShiftEvalState.EvaluatingShiftQuality;
                     _shiftStateChangeTime = now;
                 }
                 break;
 
-            case ShiftEvaluationState.EvaluatingShiftQuality:
-                // Compute shift quality error
+            case ShiftEvalState.EvaluatingShiftQuality:
                 int shiftError = _shiftFromRPM - _recommendedShiftRPMAtShift;
 
-                // Only play feedback tone if shift was NOT optimal (outside ±175 RPM)
-                // Optimal shifts (within ±175 RPM) = SILENT (no tone = correct shift!)
-                if (Math.Abs(shiftError) > 175)
-                {
-                    ToneProfile feedbackTone = GetShiftQualityTone(_shiftFromRPM, _recommendedShiftRPMAtShift);
-                    PlayTone(feedbackTone);
-                }
-                // Otherwise stay silent - good shift!
+                // Update adaptive tolerance based on this shift
+                UpdateAdaptiveTolerance(shiftError);
 
-                _shiftEvalState = ShiftEvaluationState.LockoutPeriod;
+                // Only chirp if shift was outside adaptive tolerance
+                if (Math.Abs(shiftError) > _adaptiveTolerance)
+                {
+                    ToneProfile feedbackChirp = GetShiftQualityTone(_shiftFromRPM, _recommendedShiftRPMAtShift);
+                    PlayTone(feedbackChirp);
+                }
+                // Otherwise: SILENT = correct shift!
+
+                _shiftEvalState = ShiftEvalState.LockoutPeriod;
                 _shiftStateChangeTime = now;
                 break;
 
-            case ShiftEvaluationState.LockoutPeriod:
-                // Lockout period (400-500ms) to prevent overlapping shift evaluations
+            case ShiftEvalState.LockoutPeriod:
                 if (elapsedMs >= ShiftLockoutMs)
-                {
-                    _shiftEvalState = ShiftEvaluationState.Idle;
-                }
-                // Stay silent during lockout
+                    _shiftEvalState = ShiftEvalState.Idle;
                 Stop();
                 break;
         }
 
-        // Always stay silent except during EvaluatingShiftQuality (which plays the tone)
-        if (_shiftEvalState != ShiftEvaluationState.EvaluatingShiftQuality)
+        if (_shiftEvalState != ShiftEvalState.EvaluatingShiftQuality)
         {
-            // Only stop if we're not already playing a tone
-            if (!_isPlaying || _shiftEvalState == ShiftEvaluationState.LockoutPeriod)
-            {
+            if (!_isPlaying || _shiftEvalState == ShiftEvalState.LockoutPeriod)
                 Stop();
-            }
         }
 
         _lastGearForShiftDetection = currentGear;
     }
 
     /// <summary>
-    /// Determines which tone profile to play based on shift quality.
-    /// Note: This should only be called when shift is NOT optimal (checked before calling).
+    /// Updates adaptive tolerance based on driver shift consistency (Feedback mode only)
+    ///
+    /// Algorithm:
+    /// 1. Check if shift was within current tolerance window
+    /// 2. If OUTSIDE tolerance → immediate bounce-back to wider tolerance
+    ///    - At 100 RPM → bounce to 125 RPM
+    ///    - At 125 RPM → bounce to 175 RPM
+    /// 3. If WITHIN tolerance → record success and check consistency
+    /// 4. If 80%+ of last 20 shifts are successful → tighten tolerance
+    ///    - At 175 RPM with 80%+ success → reduce to 125 RPM
+    ///    - At 125 RPM with 80%+ success → reduce to 100 RPM
+    ///
+    /// This rewards consistent shifting and immediately penalizes errors
     /// </summary>
-    private ToneProfile GetShiftQualityTone(int shiftRPM, int recommendedRPM)
+    private void UpdateAdaptiveTolerance(int shiftError)
     {
-        if (shiftRPM < recommendedRPM - 175)
+        int absError = Math.Abs(shiftError);
+        bool withinTolerance = absError <= _adaptiveTolerance;
+
+        // Check for immediate error bounce-back
+        if (!withinTolerance)
         {
-            // Shifted too early - use "Too Early" tone (high pitch, descending glide)
-            // Tells user to shift LATER next time
-            return _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
+            // Shift was outside tolerance - bounce back to wider tolerance
+            if (_adaptiveTolerance == 100)
+            {
+                _adaptiveTolerance = 125;
+                _shiftSuccessHistory.Clear(); // Reset learning
+            }
+            else if (_adaptiveTolerance == 125)
+            {
+                _adaptiveTolerance = 175;
+                _shiftSuccessHistory.Clear(); // Reset learning
+            }
+            // If already at 175, stay there and reset
+            else
+            {
+                _shiftSuccessHistory.Clear();
+            }
+            return;
         }
-        else // shiftRPM > recommendedRPM + 175
+
+        // Shift was within tolerance - record success
+        _shiftSuccessHistory.Enqueue(true);
+
+        // Keep only last 20 shifts
+        while (_shiftSuccessHistory.Count > ShiftHistorySize)
+            _shiftSuccessHistory.Dequeue();
+
+        // Need at least 15 shifts to start tightening tolerance
+        if (_shiftSuccessHistory.Count < 15)
+            return;
+
+        // Calculate success rate (all recent shifts should be successes if we got here)
+        float successRate = _shiftSuccessHistory.Count(s => s) / (float)_shiftSuccessHistory.Count;
+
+        // Tighten tolerance if consistency is high (80%+)
+        if (successRate >= 0.80f)
         {
-            // Shifted too late - use "Too Late" tone (low pitch)
-            // Tells user to shift EARLIER next time
-            return _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooLate : _toneTooLate;
+            if (_adaptiveTolerance == 175)
+            {
+                _adaptiveTolerance = 125;
+                _shiftSuccessHistory.Clear(); // Reset to re-prove at new tolerance
+            }
+            else if (_adaptiveTolerance == 125)
+            {
+                _adaptiveTolerance = 100;
+                _shiftSuccessHistory.Clear(); // Reset to re-prove at new tolerance
+            }
+            // Already at 100 (tightest), stay there
         }
     }
 
-    /// <summary>
-    /// Plays a tone with the specified profile (frequency, duration, envelope, etc.)
-    /// </summary>
+    private ToneProfile GetShiftQualityTone(int shiftRPM, int recommendedRPM)
+    {
+        // Determine which tone based on shift timing
+        // This is only called when shift is outside tolerance (chirp is played)
+        if (shiftRPM < recommendedRPM - _adaptiveTolerance)
+            return _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
+        else
+            return _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooLate : _toneTooLate;
+    }
+
     private void PlayTone(ToneProfile tone)
     {
-        // Configure wave provider with tone parameters, including glide effects
         _waveProvider.SetFrequency(tone.Frequency);
         _waveProvider.SetToneProfile(tone.DurationMs, tone.AttackMs, tone.DecayMs,
                                       tone.DecayLevel, tone.RelativeDbLevel, tone.WaveformType,
                                       tone.GlideFrequencyDelta, tone.GlideDurationMs);
-        _waveProvider.SetBeeping(false, 0, 0); // Solid tone, no beeping pattern
+        _waveProvider.SetBeeping(false, 0, 0);
 
         if (!_isPlaying)
         {
@@ -530,7 +527,7 @@ public class AudioEngine : IDisposable
     }
 
     /// <summary>
-    /// Calculates the current RPM rate of change in RPM/second.
+    /// Calculate RPM rate (RPM/second) using linear regression over history
     /// </summary>
     private float CalculateRPMRate()
     {
@@ -549,29 +546,44 @@ public class AudioEngine : IDisposable
     }
 
     /// <summary>
-    /// Determines warning distance based on RPM acceleration.
+    /// PREDICTIVE WARNING DISTANCE CALCULATION
+    ///
+    /// Goal: Start audio at exactly the right time for straight-line acceleration
+    ///
+    /// Math:
+    /// 1. Time to threshold = (threshold - currentRPM) / rpmRate
+    /// 2. Add reaction time compensation (75-125ms configurable)
+    /// 3. Add safety margin (50ms for audio latency)
+    /// 4. Convert to RPM distance = rpmRate * totalTime
+    ///
+    /// Example:
+    /// - RPM rate = 2000 RPM/sec
+    /// - Reaction time = 100ms = 0.1sec
+    /// - Safety = 50ms = 0.05sec
+    /// - Warning distance = 2000 * (0.1 + 0.05) = 300 RPM
+    ///
+    /// Adapts automatically:
+    /// - Fast accel (high RPM rate) = larger distance (earlier warning)
+    /// - Slow accel (low RPM rate) = smaller distance (later warning)
+    /// - Pro drivers (75ms) = less lead time
+    /// - Average drivers (125ms) = more lead time
     /// </summary>
-    private int CalculateDynamicWarningDistance(float rpmRatePerSecond)
+    private int CalculatePredictiveWarningDistance(float rpmRatePerSecond, int reactionTimeMs)
     {
-        if (rpmRatePerSecond > 1500f) return 200;
-        if (rpmRatePerSecond > 1000f) return 150;
-        if (rpmRatePerSecond > 600f) return 120;
-        if (rpmRatePerSecond > 300f) return 100;
-        if (rpmRatePerSecond > 150f) return 80;
-        if (rpmRatePerSecond > 50f) return 50;
-        return 30;
+        float reactionTimeSeconds = reactionTimeMs / 1000.0f;
+        float totalCompensationSeconds = reactionTimeSeconds + 0.05f; // +50ms safety
+        int warningDistance = (int)(Math.Abs(rpmRatePerSecond) * totalCompensationSeconds);
+        return Math.Clamp(warningDistance, 30, 400); // Min 30, Max 400 RPM
     }
 
     public float GetCurrentRPMRate() => CalculateRPMRate();
-    public int GetCurrentWarningDistance() => CalculateDynamicWarningDistance(CalculateRPMRate());
+    public int GetCurrentWarningDistance() => CalculatePredictiveWarningDistance(CalculateRPMRate(), _reactionTimeMs);
 
     /// <summary>
-    /// Plays a preview of the three tones for a given profile and mode.
-    /// Used to let users hear the audio feedback before selecting a profile/mode.
+    /// Play preview chirps for user selection
     /// </summary>
     public void PlayTonePreview(AudioMode mode, AudioProfile profile)
     {
-        // Determine which tones to play based on profile
         ToneProfile tooEarly, optimal, tooLate;
 
         if (profile == AudioProfile.Endurance)
@@ -587,53 +599,38 @@ public class AudioEngine : IDisposable
             tooLate = _toneTooLate;
         }
 
-        // Play each tone in sequence with a gap between
         if (mode == AudioMode.PerformanceLearning || mode == AudioMode.FeedbackOptimization)
         {
-            // Play "Too Early" tone
+            Console.WriteLine("Shift early chirp:");
             PlayTone(tooEarly);
-            Thread.Sleep(tooEarly.DurationMs + 300); // Tone duration + gap
+            Thread.Sleep(tooEarly.DurationMs + 500);
             Stop();
 
-            // Play "Optimal" tone
+            Console.WriteLine("Optimal chirp:");
             PlayTone(optimal);
-            Thread.Sleep(optimal.DurationMs + 300);
+            Thread.Sleep(optimal.DurationMs + 500);
             Stop();
 
-            // Play "Too Late" tone
+            Console.WriteLine("Shift late chirp:");
             PlayTone(tooLate);
-            Thread.Sleep(tooLate.DurationMs + 300);
+            Thread.Sleep(tooLate.DurationMs + 500);
             Stop();
         }
-        else // Standard/Adaptive mode
+        else // Standard mode
         {
-            // For standard mode, demonstrate progressive beeping at different zones
-            // Simulate "too early" zone
-            _waveProvider.SetFrequency(500f);
-            _waveProvider.SetBeeping(true, 500, 500); // Slow beeping
-            _waveOut.Play();
-            _isPlaying = true;
-            Thread.Sleep(1000);
+            Console.WriteLine("Far zone chirp (800Hz):");
+            PlayTone(_toneStandardFar);
+            Thread.Sleep(_toneStandardFar.DurationMs + 800);
             Stop();
 
-            Thread.Sleep(300);
-
-            // Simulate "approaching" zone
-            _waveProvider.SetFrequency(600f);
-            _waveProvider.SetBeeping(true, 100, 100); // Faster beeping
-            _waveOut.Play();
-            _isPlaying = true;
-            Thread.Sleep(800);
+            Console.WriteLine("Approaching chirp (950Hz):");
+            PlayTone(_toneStandardApproaching);
+            Thread.Sleep(_toneStandardApproaching.DurationMs + 600);
             Stop();
 
-            Thread.Sleep(300);
-
-            // Simulate "at threshold" zone - solid tone
-            _waveProvider.SetFrequency(700f);
-            _waveProvider.SetBeeping(false, 0, 0); // Solid tone
-            _waveOut.Play();
-            _isPlaying = true;
-            Thread.Sleep(600);
+            Console.WriteLine("Shift zone chirp (1100Hz + glide):");
+            PlayTone(_toneStandardShiftNow);
+            Thread.Sleep(_toneStandardShiftNow.DurationMs + 400);
             Stop();
         }
     }
@@ -655,8 +652,8 @@ public class AudioEngine : IDisposable
 }
 
 /// <summary>
-/// Generates triangle/sine wave audio with ADSR envelope, low-pass filter, and micro-glide support.
-/// Supports both beeping patterns (Standard mode) and tone profiles (Performance Learning mode).
+/// Wave generator with ADSR envelope, low-pass filter, and micro-glide
+/// Optimized for short chirps
 /// </summary>
 internal class TriangleWaveProvider : ISampleProvider
 {
@@ -667,9 +664,9 @@ internal class TriangleWaveProvider : ISampleProvider
     private int _beepOffSamples;
     private int _samplesSinceBeepToggle;
     private bool _beepOn = true;
-    private const float BaseAmplitude = 0.15f; // Constant base volume
+    private const float BaseAmplitude = 0.15f;
 
-    // Tone profile (ADSR + envelope)
+    // Tone profile (ADSR)
     private bool _useToneProfile = false;
     private int _toneDurationSamples = 0;
     private int _attackSamples = 0;
@@ -679,22 +676,21 @@ internal class TriangleWaveProvider : ISampleProvider
     private int _samplesSinceToneStart = 0;
     private string _waveformType = "triangle";
 
-    // Low-pass filter state
+    // Low-pass filter
     private float _filterState = 0f;
-    private const float FilterCutoffHz = 1800f; // Gentle roll-off around 1.8 kHz
+    private const float FilterCutoffHz = 1800f;
     private float _filterAlpha;
 
-    // Micro-glide support (frequency, direction, and duration)
+    // Micro-glide
     private float _targetFrequency;
     private float _glideRate = 0f;
-    private int _glideDurationSamples = 0; // Duration for glide effect
-    private int _glideSampleCount = 0; // Current glide progress
+    private int _glideDurationSamples = 0;
+    private int _glideSampleCount = 0;
 
     public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
 
     public TriangleWaveProvider()
     {
-        // Calculate filter alpha for low-pass filter (1-pole RC filter)
         float dt = 1f / WaveFormat.SampleRate;
         _filterAlpha = (2f * MathF.PI * FilterCutoffHz * dt) / (1f + 2f * MathF.PI * FilterCutoffHz * dt);
     }
@@ -705,10 +701,9 @@ internal class TriangleWaveProvider : ISampleProvider
         _targetFrequency = frequency;
     }
 
-    /// <summary>
-    /// Sets tone profile for Performance Learning mode with ADSR envelope.
-    /// </summary>
-    public void SetToneProfile(int durationMs, int attackMs, int decayMs, float decayLevel, float relativeDbLevel, string waveformType, float glideFreqDelta = 0f, int glideDurationMs = 0)
+    public void SetToneProfile(int durationMs, int attackMs, int decayMs, float decayLevel,
+                                float relativeDbLevel, string waveformType,
+                                float glideFreqDelta = 0f, int glideDurationMs = 0)
     {
         _useToneProfile = true;
         _toneDurationSamples = (int)(durationMs * WaveFormat.SampleRate / 1000.0);
@@ -720,12 +715,11 @@ internal class TriangleWaveProvider : ISampleProvider
         _samplesSinceToneStart = 0;
         _glideSampleCount = 0;
 
-        // Setup micro-glide if specified
         if (glideFreqDelta != 0f && glideDurationMs > 0)
         {
             _targetFrequency = _frequency + glideFreqDelta;
             _glideDurationSamples = (int)(glideDurationMs * WaveFormat.SampleRate / 1000.0);
-            _glideRate = glideFreqDelta / glideDurationMs * (WaveFormat.SampleRate / 1000f); // Change per sample
+            _glideRate = glideFreqDelta / glideDurationMs * (WaveFormat.SampleRate / 1000f);
         }
         else
         {
@@ -734,13 +728,9 @@ internal class TriangleWaveProvider : ISampleProvider
         }
     }
 
-    /// <summary>
-    /// Sets beeping pattern. If not beeping, plays solid tone.
-    /// </summary>
     public void SetBeeping(bool isBeeping, int beepOnMs, int beepOffMs)
     {
         bool modeChanged = _isBeeping != isBeeping;
-
         _isBeeping = isBeeping;
         _useToneProfile = false;
 
@@ -763,37 +753,28 @@ internal class TriangleWaveProvider : ISampleProvider
         {
             float sample = 0f;
 
-            // Handle tone profile (Performance Learning mode)
             if (_useToneProfile)
             {
-                // Calculate envelope (ADSR)
+                // ADSR envelope
                 float envelopeLevel = 1.0f;
 
                 if (_samplesSinceToneStart < _attackSamples)
-                {
-                    // Attack phase: ramp from 0 to 1
                     envelopeLevel = (float)_samplesSinceToneStart / _attackSamples;
-                }
                 else if (_samplesSinceToneStart < _attackSamples + _decaySamples)
                 {
-                    // Decay phase: ramp from 1 to decay level
                     int decayProgress = _samplesSinceToneStart - _attackSamples;
                     envelopeLevel = 1.0f - ((1.0f - _decayLevel) * ((float)decayProgress / _decaySamples));
                 }
                 else
-                {
-                    // Sustain at decay level
                     envelopeLevel = _decayLevel;
-                }
 
-                // Generate waveform
                 sample = GenerateWaveform(_waveformType, _phase) * envelopeLevel * _relativeDbLevel * BaseAmplitude;
 
-                // Apply low-pass filter
+                // Low-pass filter
                 _filterState = (_filterState * (1f - _filterAlpha)) + (sample * _filterAlpha);
                 sample = _filterState;
 
-                // Apply micro-glide if enabled and within glide duration
+                // Glide
                 if (_glideRate != 0f && _glideSampleCount < _glideDurationSamples)
                 {
                     _frequency += _glideRate;
@@ -802,7 +783,6 @@ internal class TriangleWaveProvider : ISampleProvider
 
                 _samplesSinceToneStart++;
             }
-            // Handle beeping mode (Standard mode)
             else if (_isBeeping)
             {
                 _samplesSinceBeepToggle++;
@@ -824,18 +804,15 @@ internal class TriangleWaveProvider : ISampleProvider
                     continue;
                 }
 
-                // Generate triangle wave
                 sample = GenerateWaveform("triangle", _phase) * BaseAmplitude;
             }
             else
             {
-                // Solid tone mode (no beeping)
                 sample = GenerateWaveform("triangle", _phase) * BaseAmplitude;
             }
 
             buffer[offset + i] = sample;
 
-            // Advance phase
             _phase += _frequency / WaveFormat.SampleRate;
             if (_phase >= 1.0f)
                 _phase -= 1.0f;
@@ -844,27 +821,19 @@ internal class TriangleWaveProvider : ISampleProvider
         return count;
     }
 
-    /// <summary>
-    /// Generates waveform sample based on type: triangle, sine, or rounded (rounded triangle/sine blend)
-    /// </summary>
     private float GenerateWaveform(string type, float phase)
     {
         float phaseValue = phase % 1.0f;
 
         if (type == "sine")
-        {
             return MathF.Sin(phaseValue * 2f * MathF.PI);
-        }
         else if (type == "rounded")
         {
-            // Blend of sine and triangle for smoother edges
             float triangle = phaseValue < 0.5f ? (phaseValue * 4f - 1f) : (3f - phaseValue * 4f);
             float sine = MathF.Sin(phaseValue * 2f * MathF.PI);
             return (triangle * 0.6f) + (sine * 0.4f);
         }
-        else // triangle (default)
-        {
+        else // triangle
             return phaseValue < 0.5f ? (phaseValue * 4f - 1f) : (3f - phaseValue * 4f);
-        }
     }
 }
