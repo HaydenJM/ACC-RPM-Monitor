@@ -24,8 +24,8 @@ public class AudioEngine : IDisposable
     // Human reaction time compensation (75ms pro, 100ms default, 125ms average)
     private int _reactionTimeMs = 100;
 
-    // Adaptive tolerance system - learns driver consistency
-    private readonly Queue<int> _shiftErrorHistory = new(); // Last 20 shifts
+    // Adaptive tolerance system - learns driver consistency (Feedback mode only)
+    private readonly Queue<bool> _shiftSuccessHistory = new(); // Last 20 shifts: true = within tolerance
     private const int ShiftHistorySize = 20;
     private int _adaptiveTolerance = 175; // Starts at 175, adapts down to 100 based on consistency
 
@@ -289,13 +289,7 @@ public class AudioEngine : IDisposable
 
     /// <summary>
     /// Performance Learning mode: Occasional chirps for real-time guidance
-    /// Uses adaptive tolerance based on driver consistency
-    ///
-    /// ADAPTIVE TOLERANCE:
-    /// - Starts at 175 RPM
-    /// - If driver consistently shifts within 175 RPM → reduces to 125 RPM
-    /// - If driver consistently shifts within 125 RPM → reduces to 100 RPM
-    /// - Never goes below 100 RPM (minimum safe tolerance)
+    /// Uses fixed 175 RPM tolerance (no adaptive learning in this mode)
     /// </summary>
     private void UpdatePerformanceLearningAudio(int currentRPM, int threshold, int currentGear)
     {
@@ -307,12 +301,12 @@ public class AudioEngine : IDisposable
         // Only chirp when close to recommended shift point
         if (rpmFromThreshold >= -warningDistance && _recommendedShiftRPM > 0)
         {
-            // Use adaptive tolerance
+            // Use fixed 175 RPM tolerance
             ToneProfile chirp;
 
-            if (currentRPM < _recommendedShiftRPM - _adaptiveTolerance)
+            if (currentRPM < _recommendedShiftRPM - 175)
                 chirp = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
-            else if (currentRPM > _recommendedShiftRPM + _adaptiveTolerance)
+            else if (currentRPM > _recommendedShiftRPM + 175)
                 chirp = _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooLate : _toneTooLate;
             else
                 chirp = _currentProfile == AudioProfile.Endurance ? _toneEnduranceOptimal : _toneOptimal;
@@ -348,13 +342,15 @@ public class AudioEngine : IDisposable
 
     /// <summary>
     /// Feedback Optimization mode: SILENT during driving, gentle post-shift feedback only
-    /// Uses adaptive tolerance - silent when shift is within tolerance
+    /// Uses adaptive tolerance based on driver consistency
     ///
-    /// ADAPTIVE TOLERANCE LEARNING:
-    /// Tracks last 20 shifts and calculates consistency
-    /// - High consistency (avg error < 50 RPM) → tolerance = 100 RPM
-    /// - Medium consistency (avg error < 100 RPM) → tolerance = 125 RPM
-    /// - Lower consistency → tolerance = 175 RPM
+    /// ADAPTIVE TOLERANCE LEARNING (only in Feedback mode):
+    /// Tracks last 20 shifts and counts successes (shifts within current tolerance)
+    /// - Starts at 175 RPM tolerance
+    /// - If 80%+ shifts within 175 RPM window → reduces to 125 RPM
+    /// - If 80%+ shifts within 125 RPM window → reduces to 100 RPM
+    /// - If shift outside tolerance → immediately bounces back to wider tolerance
+    /// - Only learns from correct shifts (when optimal tone would play)
     /// </summary>
     private void UpdateFeedbackOptimizationAudio(int currentRPM, int threshold, int currentGear)
     {
@@ -433,42 +429,82 @@ public class AudioEngine : IDisposable
     }
 
     /// <summary>
-    /// Updates adaptive tolerance based on driver shift consistency
+    /// Updates adaptive tolerance based on driver shift consistency (Feedback mode only)
     ///
     /// Algorithm:
-    /// 1. Track last 20 shift errors in history
-    /// 2. Calculate average absolute error
-    /// 3. Adjust tolerance:
-    ///    - avg < 50 RPM → tolerance = 100 RPM (very consistent)
-    ///    - avg < 100 RPM → tolerance = 125 RPM (consistent)
-    ///    - avg >= 100 RPM → tolerance = 175 RPM (learning)
+    /// 1. Check if shift was within current tolerance window
+    /// 2. If OUTSIDE tolerance → immediate bounce-back to wider tolerance
+    ///    - At 100 RPM → bounce to 125 RPM
+    ///    - At 125 RPM → bounce to 175 RPM
+    /// 3. If WITHIN tolerance → record success and check consistency
+    /// 4. If 80%+ of last 20 shifts are successful → tighten tolerance
+    ///    - At 175 RPM with 80%+ success → reduce to 125 RPM
+    ///    - At 125 RPM with 80%+ success → reduce to 100 RPM
+    ///
+    /// This rewards consistent shifting and immediately penalizes errors
     /// </summary>
     private void UpdateAdaptiveTolerance(int shiftError)
     {
-        _shiftErrorHistory.Enqueue(Math.Abs(shiftError));
+        int absError = Math.Abs(shiftError);
+        bool withinTolerance = absError <= _adaptiveTolerance;
+
+        // Check for immediate error bounce-back
+        if (!withinTolerance)
+        {
+            // Shift was outside tolerance - bounce back to wider tolerance
+            if (_adaptiveTolerance == 100)
+            {
+                _adaptiveTolerance = 125;
+                _shiftSuccessHistory.Clear(); // Reset learning
+            }
+            else if (_adaptiveTolerance == 125)
+            {
+                _adaptiveTolerance = 175;
+                _shiftSuccessHistory.Clear(); // Reset learning
+            }
+            // If already at 175, stay there and reset
+            else
+            {
+                _shiftSuccessHistory.Clear();
+            }
+            return;
+        }
+
+        // Shift was within tolerance - record success
+        _shiftSuccessHistory.Enqueue(true);
 
         // Keep only last 20 shifts
-        while (_shiftErrorHistory.Count > ShiftHistorySize)
-            _shiftErrorHistory.Dequeue();
+        while (_shiftSuccessHistory.Count > ShiftHistorySize)
+            _shiftSuccessHistory.Dequeue();
 
-        // Need at least 10 shifts to start adapting
-        if (_shiftErrorHistory.Count < 10)
+        // Need at least 15 shifts to start tightening tolerance
+        if (_shiftSuccessHistory.Count < 15)
             return;
 
-        // Calculate average absolute error
-        float avgError = _shiftErrorHistory.Average();
+        // Calculate success rate (all recent shifts should be successes if we got here)
+        float successRate = _shiftSuccessHistory.Count(s => s) / (float)_shiftSuccessHistory.Count;
 
-        // Adjust tolerance based on consistency
-        if (avgError < 50)
-            _adaptiveTolerance = 100; // Very consistent - tight tolerance
-        else if (avgError < 100)
-            _adaptiveTolerance = 125; // Consistent - medium tolerance
-        else
-            _adaptiveTolerance = 175; // Still learning - wide tolerance
+        // Tighten tolerance if consistency is high (80%+)
+        if (successRate >= 0.80f)
+        {
+            if (_adaptiveTolerance == 175)
+            {
+                _adaptiveTolerance = 125;
+                _shiftSuccessHistory.Clear(); // Reset to re-prove at new tolerance
+            }
+            else if (_adaptiveTolerance == 125)
+            {
+                _adaptiveTolerance = 100;
+                _shiftSuccessHistory.Clear(); // Reset to re-prove at new tolerance
+            }
+            // Already at 100 (tightest), stay there
+        }
     }
 
     private ToneProfile GetShiftQualityTone(int shiftRPM, int recommendedRPM)
     {
+        // Determine which tone based on shift timing
+        // This is only called when shift is outside tolerance (chirp is played)
         if (shiftRPM < recommendedRPM - _adaptiveTolerance)
             return _currentProfile == AudioProfile.Endurance ? _toneEnduranceTooEarly : _toneTooEarly;
         else
