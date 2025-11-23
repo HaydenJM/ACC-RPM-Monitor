@@ -49,37 +49,60 @@ var configManager = new ConfigManager(
 // Initialize telemetry server (can be toggled from menu)
 TelemetryServer? telemetryServer = null;
 
-// Initialize vehicle change monitor - runs in background thread
-var vehicleMonitor = new VehicleChangeMonitor();
+// Initialize game state monitor - detects pause events for seamless config switching
+var gameStateMonitor = new GameStateMonitor();
 bool vehicleChanged = false;
 string? newVehicleName = null;
 bool trackChanged = false;
 string? newTrackName = null;
 
+// Pause-based vehicle/track detection (most reliable method)
+gameStateMonitor.VehicleOrTrackChanged += (sender, e) =>
+{
+    if (e.VehicleChanged && e.NewVehicle != null)
+    {
+        vehicleChanged = true;
+        newVehicleName = e.NewVehicle;
+        Console.WriteLine($"\n[PAUSE DETECTED] Vehicle changed: {e.OldVehicle} → {e.NewVehicle}");
+        Console.WriteLine("Config will update on next menu...");
+    }
+
+    if (e.TrackChanged && e.NewTrack != null)
+    {
+        trackChanged = true;
+        newTrackName = e.NewTrack;
+        configManager.SetTrack(e.NewTrack);
+        Console.WriteLine($"\n[PAUSE DETECTED] Track changed: {e.OldTrack} → {e.NewTrack}");
+        Console.WriteLine($"Updated directory: {configManager.GetVehicleDataDirectory()}");
+    }
+};
+
+// Start game state monitoring
+gameStateMonitor.Start();
+
+// Also use continuous monitor as fallback (for when not pausing)
+var vehicleMonitor = new VehicleChangeMonitor();
+
 vehicleMonitor.VehicleChanged += (sender, e) =>
 {
-    // Vehicle changed - set flag to trigger vehicle selection
     vehicleChanged = true;
     newVehicleName = e.NewVehicle;
     Console.SetCursorPosition(0, Console.CursorTop);
-    Console.WriteLine($"\n\nVEHICLE CHANGED: {e.NewVehicle}                                         ");
-    Console.WriteLine("Returning to vehicle selection...                                        ");
-    Thread.Sleep(2000);
+    Console.WriteLine($"\nVEHICLE CHANGED: {e.NewVehicle}");
+    Console.WriteLine("Returning to menu...");
 };
 
 vehicleMonitor.TrackChanged += (sender, e) =>
 {
-    // Track changed - update config manager
     trackChanged = true;
     newTrackName = e.NewTrack;
     configManager.SetTrack(e.NewTrack);
     Console.SetCursorPosition(0, Console.CursorTop);
-    Console.WriteLine($"\n\nTRACK CHANGED: {e.NewTrack}                                             ");
-    Console.WriteLine($"Updated configuration directory to: {configManager.GetVehicleDataDirectory()}");
-    Thread.Sleep(2000);
+    Console.WriteLine($"\nTRACK CHANGED: {e.NewTrack}");
+    Console.WriteLine($"Directory: {configManager.GetVehicleDataDirectory()}");
 };
 
-// Start monitoring with initial vehicle and track
+// Start continuous monitoring
 if (!string.IsNullOrEmpty(detectedVehicle))
 {
     vehicleMonitor.Start(detectedVehicle, detectedTrack);
@@ -216,6 +239,7 @@ while (!exitApp)
 }
 
 // Clean up
+gameStateMonitor?.Dispose();
 vehicleMonitor?.Dispose();
 telemetryServer?.Dispose();
 
