@@ -56,7 +56,7 @@ public class AudioEngine : IDisposable
         public int GlideDurationMs { get; set; } = 0;
     }
 
-    // Normal profile tones
+    // Normal profile tones (Performance/Feedback modes)
     private readonly ToneProfile _toneTooEarly = new()
     {
         Frequency = 950f, DurationMs = 130, AttackMs = 5, DecayMs = 120,
@@ -74,6 +74,26 @@ public class AudioEngine : IDisposable
     {
         Frequency = 400f, DurationMs = 150, AttackMs = 5, DecayMs = 145,
         DecayLevel = 0.50f, RelativeDbLevel = 0.794f, WaveformType = "triangle"
+    };
+
+    // Standard mode tones - slightly higher frequencies, more frequent
+    private readonly ToneProfile _toneStandardFar = new()
+    {
+        Frequency = 700f, DurationMs = 90, AttackMs = 5, DecayMs = 80,
+        DecayLevel = 0.50f, RelativeDbLevel = 0.707f, WaveformType = "sine"
+    };
+
+    private readonly ToneProfile _toneStandardApproaching = new()
+    {
+        Frequency = 850f, DurationMs = 80, AttackMs = 5, DecayMs = 70,
+        DecayLevel = 0.55f, RelativeDbLevel = 0.85f, WaveformType = "sine"
+    };
+
+    private readonly ToneProfile _toneStandardShiftNow = new()
+    {
+        Frequency = 1000f, DurationMs = 100, AttackMs = 5, DecayMs = 90,
+        DecayLevel = 0.60f, RelativeDbLevel = 1.0f, WaveformType = "rounded",
+        GlideFrequencyDelta = 50f, GlideDurationMs = 80
     };
 
     // Endurance profile - lower fatigue
@@ -100,6 +120,10 @@ public class AudioEngine : IDisposable
     // Performance audio tracking
     private DateTime _performanceAudioStartTime = DateTime.MinValue;
     private float _lastRPMRate = 0f;
+
+    // Standard mode audio tracking
+    private DateTime _standardToneEndTime = DateTime.MinValue;
+    private int _lastProximityZone = -1;
 
     // Post-shift evaluation state machine
     private enum ShiftEvalState
@@ -185,7 +209,8 @@ public class AudioEngine : IDisposable
     }
 
     /// <summary>
-    /// Standard mode: Progressive beeping optimized for straight-line acceleration
+    /// Standard mode: Pitch-based tones optimized for straight-line acceleration
+    /// Non-intrusive with slightly higher frequencies and frequent playback
     ///
     /// PREDICTION MATH:
     /// - Calculate RPM rate: dRPM/dt (RPM per second)
@@ -196,7 +221,11 @@ public class AudioEngine : IDisposable
     /// DYNAMIC WARNING DISTANCE:
     /// Higher RPM rate = earlier warning (more distance needed)
     /// Lower RPM rate = later warning (less distance needed)
-    /// This ensures audio starts at the RIGHT TIME regardless of acceleration
+    ///
+    /// TONE PROGRESSION:
+    /// Far (0-33%): 700Hz, 90ms, gaps of 400ms = gentle reminder
+    /// Approaching (33-66%): 850Hz, 80ms, gaps of 200ms = getting close
+    /// Shift now (66-100%): 1000Hz, 100ms, gaps of 100ms = shift now!
     /// </summary>
     private void UpdateStandardAudio(int currentRPM, int threshold, int currentGear)
     {
@@ -204,51 +233,80 @@ public class AudioEngine : IDisposable
         float rpmRate = CalculateRPMRate();
 
         // Calculate dynamic warning distance based on RPM rate and reaction time
-        // Formula: warningDistance = (rpmRate * reactionTimeSeconds) + safetyMargin
-        // This gives us the RPM distance we need to START the audio
         int warningDistance = CalculatePredictiveWarningDistance(rpmRate, _reactionTimeMs);
 
         int rpmFromThreshold = currentRPM - threshold;
 
-        // Use consistent 600Hz frequency (clear without being harsh)
-        float frequency = 600f;
-
         // Only play when within warning distance (predictive zone)
         if (rpmFromThreshold >= -warningDistance)
         {
-            _waveProvider.SetFrequency(frequency);
+            // Calculate proximity ratio (0.0 = far, 1.0 = at threshold)
+            float proximityRatio = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
 
-            // Progressive beeping based on proximity
-            if (rpmFromThreshold >= 0)
+            // Determine tone and timing based on proximity zones
+            ToneProfile toneToPlay;
+            int gapMs; // Gap between tones
+            int proximityZone;
+
+            if (proximityRatio < 0.33f)
             {
-                // At/above threshold - solid tone (SHIFT NOW)
-                _waveProvider.SetBeeping(false, 0, 0);
+                // Far zone: gentle 700Hz tone, longer gaps
+                toneToPlay = _toneStandardFar;
+                gapMs = 400;
+                proximityZone = 0;
+            }
+            else if (proximityRatio < 0.66f)
+            {
+                // Approaching zone: 850Hz tone, medium gaps
+                toneToPlay = _toneStandardApproaching;
+                gapMs = 200;
+                proximityZone = 1;
             }
             else
             {
-                // Below threshold - progressive beeping
-                // proximityRatio: 0.0 = far from threshold, 1.0 = at threshold
-                float proximityRatio = 1.0f - (Math.Abs(rpmFromThreshold) / (float)warningDistance);
-
-                // Beep timing progression: far = slow (500ms), close = fast (50ms), at = solid
-                int maxBeepMs = 500;
-                int minBeepMs = 50;
-
-                int beepOnMs = (int)(maxBeepMs - (proximityRatio * (maxBeepMs - minBeepMs)));
-                int beepOffMs = beepOnMs; // Equal on/off for rhythm
-
-                _waveProvider.SetBeeping(true, beepOnMs, beepOffMs);
+                // Shift now zone: 1000Hz tone with glide, short gaps
+                toneToPlay = _toneStandardShiftNow;
+                gapMs = 100;
+                proximityZone = 2;
             }
+
+            DateTime now = DateTime.Now;
+
+            // Check if we should play a new tone
+            bool shouldPlayTone = false;
 
             if (!_isPlaying)
             {
-                _waveOut.Play();
-                _isPlaying = true;
+                // Not currently playing - start new tone
+                shouldPlayTone = true;
+            }
+            else if (_standardToneEndTime != DateTime.MinValue && now >= _standardToneEndTime)
+            {
+                // Previous tone finished, check if gap elapsed
+                TimeSpan timeSinceEnd = now - _standardToneEndTime;
+                if (timeSinceEnd.TotalMilliseconds >= gapMs)
+                {
+                    shouldPlayTone = true;
+                }
+            }
+            else if (_lastProximityZone != proximityZone)
+            {
+                // Zone changed - play new tone immediately
+                shouldPlayTone = true;
+            }
+
+            if (shouldPlayTone)
+            {
+                PlayTone(toneToPlay);
+                _standardToneEndTime = now.AddMilliseconds(toneToPlay.DurationMs);
+                _lastProximityZone = proximityZone;
             }
         }
         else
         {
             Stop();
+            _standardToneEndTime = DateTime.MinValue;
+            _lastProximityZone = -1;
         }
     }
 
@@ -506,30 +564,24 @@ public class AudioEngine : IDisposable
         }
         else // Standard mode
         {
-            // Demo progressive beeping
-            _waveProvider.SetFrequency(500f);
-            _waveProvider.SetBeeping(true, 500, 500);
-            _waveOut.Play();
-            _isPlaying = true;
-            Thread.Sleep(1000);
+            // Demo three proximity zones
+            Console.WriteLine("Far zone (700Hz):");
+            PlayTone(_toneStandardFar);
+            Thread.Sleep(_toneStandardFar.DurationMs + 400);
             Stop();
 
             Thread.Sleep(300);
 
-            _waveProvider.SetFrequency(600f);
-            _waveProvider.SetBeeping(true, 100, 100);
-            _waveOut.Play();
-            _isPlaying = true;
-            Thread.Sleep(800);
+            Console.WriteLine("Approaching zone (850Hz):");
+            PlayTone(_toneStandardApproaching);
+            Thread.Sleep(_toneStandardApproaching.DurationMs + 200);
             Stop();
 
             Thread.Sleep(300);
 
-            _waveProvider.SetFrequency(700f);
-            _waveProvider.SetBeeping(false, 0, 0);
-            _waveOut.Play();
-            _isPlaying = true;
-            Thread.Sleep(600);
+            Console.WriteLine("Shift now zone (1000Hz + glide):");
+            PlayTone(_toneStandardShiftNow);
+            Thread.Sleep(_toneStandardShiftNow.DurationMs + 100);
             Stop();
         }
     }
